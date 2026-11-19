@@ -236,7 +236,7 @@ export async function loginWithCredentials(
   throw new WorkspaceApiError('No account found for this username, email, or mobile.');
 }
 
-export const WORKSPACE_CACHE_KEY = 'kyc_workspace_cache_v1';
+export const WORKSPACE_CACHE_KEY = 'kyc_workspace_cache_v2';
 
 export function getCachedWorkspaceData(): {
   leads: KycLead[];
@@ -244,16 +244,24 @@ export function getCachedWorkspaceData(): {
   masterTeam: MasterSalesPerson[];
 } {
   try {
-    const raw =
-      typeof window !== 'undefined' ? window.localStorage.getItem(WORKSPACE_CACHE_KEY) : null;
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.leads)) {
-        return {
-          leads: parsed.leads,
-          teamMembers: Array.isArray(parsed.teamMembers) ? parsed.teamMembers : [],
-          masterTeam: Array.isArray(parsed.masterTeam) ? parsed.masterTeam : [],
-        };
+    if (typeof window !== 'undefined') {
+      // Clear legacy cache containing dummy test leads
+      if (window.localStorage.getItem('kyc_workspace_cache_v1')) {
+        window.localStorage.removeItem('kyc_workspace_cache_v1');
+      }
+      const raw = window.localStorage.getItem(WORKSPACE_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.leads)) {
+          const cleanLeads = parsed.leads.filter(
+            (l: KycLead) => l.id !== 'KYC-2026-0101' && l.companyName !== 'Passary Minerals Private Limited'
+          );
+          return {
+            leads: cleanLeads,
+            teamMembers: Array.isArray(parsed.teamMembers) ? parsed.teamMembers : [],
+            masterTeam: Array.isArray(parsed.masterTeam) ? parsed.masterTeam : [],
+          };
+        }
       }
     }
   } catch {

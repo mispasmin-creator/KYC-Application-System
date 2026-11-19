@@ -18,57 +18,7 @@ const DEFAULT_ADMIN_USER = {
 };
 
 const FALLBACK_WORKSPACE = {
-  leads: [
-    {
-      id: 'KYC-2026-0101',
-      entityType: 'customer',
-      companyName: 'Passary Minerals Private Limited',
-      industry: 'Manufacture',
-      gstin: '22AAHCP9274B1ZI',
-      address:
-        'Shriram Business Park, Block- C, 2nd Floor, Shop No - 217,218, Vidhansabha Road, Near By Swarnabhoomi, Raipur, Pin- 493111, Chhattisgarh, India',
-      city: 'Raipur',
-      state: 'Chhattisgarh',
-      pincode: '492001',
-      branchCount: 1,
-      branches: [
-        {
-          id: 'br-2-1',
-          branchName: 'Pmmpl',
-          city: 'Raipur',
-          contactPhone: '9876543212',
-        },
-      ],
-      managerName: 'Ahitesh',
-      managerPhone: '9755632637',
-      teamLeaderName: 'Alauddin',
-      teamLeaderPhone: '9755632637',
-      contactEmail: 'demo@gmail.com',
-      gmName: 'Jayant Kumar Pandey',
-      mmName: 'Sagar Choudhary',
-      tseName: 'Rajendra Kumar',
-      salespersonName: 'Admin',
-      salespersonCategory: 'ADMIN',
-      notes: 'demo',
-      createdAt: '2026-11-19T03:36:19.486Z',
-      updatedAt: '2026-11-19T03:36:19.486Z',
-      gmId: '',
-      mmId: '',
-      tseId: '',
-      salespersonId: '',
-      activities: [
-        {
-          id: 'act-KYC-2026-0101',
-          timestamp: '2026-11-19T03:36:19.486Z',
-          actorName: 'Admin',
-          actorRole: 'manager',
-          action: 'KYC Saved',
-          detail:
-            'Saved Passary Minerals Private Limited (GM: Jayant Kumar Pandey, MM: Sagar Choudhary, TSE: Rajendra Kumar).',
-        },
-      ],
-    },
-  ],
+  leads: [],
   teamMembers: [
     {
       id: 'tm-1795016485360',
@@ -148,12 +98,12 @@ async function callAppsScript<T = any>(
     method === 'GET' ? `${APPS_SCRIPT_URL}?action=workspace` : APPS_SCRIPT_URL;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000);
+  const timeoutId = setTimeout(() => controller.abort(), 9000);
 
   try {
     const res = await fetch(url, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: method === 'POST' ? { 'Content-Type': 'application/json' } : undefined,
       body: method === 'POST' && payload ? JSON.stringify(payload) : undefined,
       redirect: 'follow',
       signal: controller.signal,
