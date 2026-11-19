@@ -7,6 +7,7 @@ import {
   SalespersonCategory,
   TeamMember,
 } from '../types/kyc';
+import { filterNonAdminMembers } from '../utils/teamAccessUtils';
 import { validateGstin } from '../utils/validators';
 
 interface KycDirectoryViewProps {
@@ -42,7 +43,7 @@ export function KycDirectoryView({
 
   const salespersons = useMemo(() => {
     const entries = new Map<string, string>();
-    teamMembers.forEach((m) => {
+    filterNonAdminMembers(teamMembers).forEach((m) => {
       entries.set(`id:${m.id}`, `${m.name} (${m.salespersonCategory})`);
     });
     leads.forEach((l) => {
@@ -209,7 +210,7 @@ export function KycDirectoryView({
               className="flex-1 sm:flex-none min-h-[40px] rounded-xl border border-white/85 bg-white/85 px-3 py-1.5 text-base sm:text-xs font-medium text-slate-700 focus:border-[#0D4F3C] focus:outline-none"
             >
               <option value="all">All Categories</option>
-              {SALESPERSON_CATEGORIES.map((cat) => (
+              {SALESPERSON_CATEGORIES.filter((cat) => cat.value !== 'ADMIN').map((cat) => (
                 <option key={cat.value} value={cat.value}>
                   {cat.label} — {cat.fullTitle}
                 </option>

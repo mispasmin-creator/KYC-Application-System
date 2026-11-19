@@ -1,4 +1,4 @@
-import { Award, Building2, Plus, Trash2, Users } from 'lucide-react';
+import { Award, Building2, Plus, ShieldCheck, Trash2, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import {
   KycLead,
@@ -6,6 +6,11 @@ import {
   SalespersonCategory,
   TeamMember,
 } from '../types/kyc';
+import {
+  filterNonAdminMembers,
+  formatCategoryBadge,
+  isProtectedAdminMember,
+} from '../utils/teamAccessUtils';
 import { isValidIndianPhone, normalizeIndianPhone } from '../utils/validators';
 
 interface LeaderboardViewProps {
@@ -43,8 +48,10 @@ export function LeaderboardView({
   const [categoryFilter, setCategoryFilter] = useState<'all' | SalespersonCategory>('all');
   const [formError, setFormError] = useState('');
 
+  const salesTeamMembers = useMemo(() => filterNonAdminMembers(teamMembers), [teamMembers]);
+
   const repRows: RepStats[] = useMemo(() => {
-    return teamMembers
+    return salesTeamMembers
       .filter((member) =>
         categoryFilter === 'all' ? true : member.salespersonCategory === categoryFilter
       )
@@ -90,7 +97,7 @@ export function LeaderboardView({
         }
         return a.member.name.localeCompare(b.member.name);
       });
-  }, [leads, teamMembers, globalSearchQuery, categoryFilter]);
+  }, [leads, salesTeamMembers, globalSearchQuery, categoryFilter]);
 
   const topContributor = repRows.find((r) => r.totalCompanies > 0) ?? repRows[0];
   const totalMappedBranches = leads.reduce((sum, l) => sum + l.branchCount, 0);
@@ -121,7 +128,7 @@ export function LeaderboardView({
       name: name.trim(),
       email: email.trim().toLowerCase(),
       phone: normalizeIndianPhone(phone),
-      role: salespersonCategory === 'GM' ? 'manager' : 'salesperson',
+      role: salespersonCategory === 'GM' || salespersonCategory === 'ADMIN' ? 'manager' : 'salesperson',
       salespersonCategory,
       territory: territory.trim(),
       password: password.trim(),
@@ -227,7 +234,7 @@ export function LeaderboardView({
                 onChange={(e) => setSalespersonCategory(e.target.value as SalespersonCategory)}
                 className="w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-base sm:text-xs text-slate-900 focus:border-[#0D4F3C] focus:outline-none focus:ring-2 focus:ring-[#0D4F3C]/20"
               >
-                {SALESPERSON_CATEGORIES.map((cat) => (
+                {SALESPERSON_CATEGORIES.filter((cat) => cat.value !== 'ADMIN').map((cat) => (
                   <option key={cat.value} value={cat.value}>
                     {cat.label} — {cat.fullTitle}
                   </option>
@@ -290,12 +297,12 @@ export function LeaderboardView({
                 Team Roster
               </div>
               <div className="mt-0.5 font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums">
-                {teamMembers.length}
+                {salesTeamMembers.length}
               </div>
               <div className="mt-0.5 text-[11px] text-slate-600 tabular-nums truncate">
-                {teamMembers.filter((m) => m.salespersonCategory === 'GM').length} GM ·{' '}
-                {teamMembers.filter((m) => m.salespersonCategory === 'MM').length} MM ·{' '}
-                {teamMembers.filter((m) => m.salespersonCategory === 'TSE').length} TSE
+                {salesTeamMembers.filter((m) => m.salespersonCategory === 'GM').length} GM ·{' '}
+                {salesTeamMembers.filter((m) => m.salespersonCategory === 'MM').length} MM ·{' '}
+                {salesTeamMembers.filter((m) => m.salespersonCategory === 'TSE').length} TSE
               </div>
             </div>
           </div>
@@ -328,40 +335,57 @@ export function LeaderboardView({
               : 'No team members added yet.'}
           </div>
         ) : (
-          repRows.map((row, index) => (
-            <div
-              key={row.member.id}
-              className="rounded-2xl bg-white border border-slate-200/80 p-4 shadow-xs"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-bold text-slate-400">
-                      #{index + 1}
-                    </span>
-                    <span className="font-display text-sm font-bold text-slate-900 truncate">
-                      {row.member.name}
-                    </span>
-                    <span className="rounded-md bg-[#E8F6EE] px-2 py-0.5 font-mono text-[10px] font-bold text-[#0D4F3C]">
-                      {row.member.salespersonCategory}
-                    </span>
+          repRows.map((row, index) => {
+            const isProtectedAdmin = isProtectedAdminMember(row.member);
+            return (
+              <div
+                key={row.member.id}
+                className="rounded-2xl bg-white border border-slate-200/80 p-4 shadow-xs"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-slate-400">
+                        #{index + 1}
+                      </span>
+                      <span className="font-display text-sm font-bold text-slate-900 truncate">
+                        {row.member.name}
+                      </span>
+                      <span
+                        className={`rounded-md px-2 py-0.5 font-mono text-[10px] font-bold ${
+                          isProtectedAdmin
+                            ? 'bg-indigo-50 text-indigo-700'
+                            : 'bg-[#E8F6EE] text-[#0D4F3C]'
+                        }`}
+                      >
+                        {formatCategoryBadge(row.member.salespersonCategory, row.member.name)}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-xs text-slate-500">
+                      {[row.member.territory, row.member.phone || row.member.email]
+                        .filter(Boolean)
+                        .join(' · ') || '—'}
+                    </div>
                   </div>
-                  <div className="mt-0.5 text-xs text-slate-500">
-                    {row.member.territory} · {row.member.phone || row.member.email}
-                  </div>
-                </div>
 
-                {row.member.id !== activeUser.id && (
-                  <button
-                    type="button"
-                    onClick={() => onDeleteTeamMember(row.member)}
-                    className="flex h-10 w-10 items-center justify-center rounded-full border border-rose-200 bg-rose-50/70 text-rose-700 active:scale-95 transition-transform shrink-0"
-                    aria-label={`Remove ${row.member.name}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
+                  {isProtectedAdmin ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-semibold text-indigo-700 shrink-0">
+                      <ShieldCheck className="h-3 w-3" />
+                      <span>Protected</span>
+                    </span>
+                  ) : (
+                    row.member.id !== activeUser.id && (
+                      <button
+                        type="button"
+                        onClick={() => onDeleteTeamMember(row.member)}
+                        className="flex h-10 w-10 items-center justify-center rounded-full border border-rose-200 bg-rose-50/70 text-rose-700 active:scale-95 transition-transform shrink-0"
+                        aria-label={`Remove ${row.member.name}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )
+                  )}
+                </div>
 
               <div className="mt-3 grid grid-cols-4 gap-2 rounded-xl bg-slate-50 p-2.5 text-center text-xs">
                 <div>
@@ -390,7 +414,8 @@ export function LeaderboardView({
                 </div>
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -420,65 +445,79 @@ export function LeaderboardView({
                   </td>
                 </tr>
               ) : (
-                repRows.map((row, index) => (
-                  <tr key={row.member.id} className="hover:bg-white/65 transition-colors">
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2.5">
-                        <span className="font-mono text-xs font-semibold text-slate-400 tabular-nums w-5">
-                          #{index + 1}
-                        </span>
-                        <div>
-                          <div className="font-semibold text-slate-900">{row.member.name}</div>
-                          <div className="text-[11px] text-slate-500 font-mono tabular-nums">
-                            {row.member.phone || row.member.email}
+                repRows.map((row, index) => {
+                  const isProtectedAdmin = isProtectedAdminMember(row.member);
+                  return (
+                    <tr key={row.member.id} className="hover:bg-white/65 transition-colors">
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <div className="flex items-center gap-2.5">
+                          <span className="font-mono text-xs font-semibold text-slate-400 tabular-nums w-5">
+                            #{index + 1}
+                          </span>
+                          <div>
+                            <div className="font-semibold text-slate-900">{row.member.name}</div>
+                            <div className="text-[11px] text-slate-500 font-mono tabular-nums">
+                              {row.member.phone || row.member.email}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <span className="inline-flex rounded-lg border border-emerald-200/80 bg-emerald-50/90 px-2.5 py-0.5 font-mono text-xs font-semibold text-[#0D4F3C]">
-                        {row.member.salespersonCategory}
-                      </span>
-                    </td>
-
-                    <td className="py-3.5 px-4 text-xs text-slate-600 whitespace-nowrap">
-                      {row.member.territory}
-                    </td>
-
-                    <td className="py-3.5 px-4 text-right font-mono text-xs font-semibold text-slate-900 tabular-nums">
-                      {row.totalCompanies}
-                    </td>
-
-                    <td className="py-3.5 px-4 text-right font-mono text-xs text-[#0D4F3C] tabular-nums">
-                      {row.customerCount}
-                    </td>
-
-                    <td className="py-3.5 px-4 text-right font-mono text-xs text-amber-700 tabular-nums">
-                      {row.vendorCount}
-                    </td>
-
-                    <td className="py-3.5 px-4 text-right font-mono text-xs text-slate-700 tabular-nums">
-                      {row.totalBranchesBrought}
-                    </td>
-
-                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                      {row.member.id !== activeUser.id ? (
-                        <button
-                          type="button"
-                          onClick={() => onDeleteTeamMember(row.member)}
-                          className="inline-flex items-center justify-center rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-700 transition-colors"
-                          title={`Remove ${row.member.name}`}
-                          aria-label={`Remove ${row.member.name}`}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex rounded-lg border px-2.5 py-0.5 font-mono text-xs font-semibold ${
+                            isProtectedAdmin
+                              ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                              : 'border-emerald-200/80 bg-emerald-50/90 text-[#0D4F3C]'
+                          }`}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      ) : (
-                        <span className="text-[11px] font-medium text-[#0D4F3C]">Active</span>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                          {formatCategoryBadge(row.member.salespersonCategory, row.member.name)}
+                        </span>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-xs text-slate-600 whitespace-nowrap">
+                        {row.member.territory || '—'}
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right font-mono text-xs font-semibold text-slate-900 tabular-nums">
+                        {row.totalCompanies}
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right font-mono text-xs text-[#0D4F3C] tabular-nums">
+                        {row.customerCount}
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right font-mono text-xs text-amber-700 tabular-nums">
+                        {row.vendorCount}
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right font-mono text-xs text-slate-700 tabular-nums">
+                        {row.totalBranchesBrought}
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        {isProtectedAdmin ? (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                            <ShieldCheck className="h-3 w-3" />
+                            <span>Protected</span>
+                          </span>
+                        ) : row.member.id !== activeUser.id ? (
+                          <button
+                            type="button"
+                            onClick={() => onDeleteTeamMember(row.member)}
+                            className="inline-flex items-center justify-center rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-700 transition-colors"
+                            title={`Remove ${row.member.name}`}
+                            aria-label={`Remove ${row.member.name}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        ) : (
+                          <span className="text-[11px] font-medium text-[#0D4F3C]">Active</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

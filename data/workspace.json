@@ -1,0 +1,276 @@
+{
+  "leads": [
+    {
+      "id": "KYC-2026-0101",
+      "entityType": "customer",
+      "companyName": "Passary Minerals Private Limited",
+      "industry": "Manufacture",
+      "gstin": "22AAHCP9274B1ZI",
+      "address": "Shriram Business Park, Block- C, 2nd Floor, Shop No - 217,218, Vidhansabha Road, Near By Swarnabhoomi, Raipur, Pin- 493111, Chhattisgarh, India",
+      "city": "Raipur",
+      "state": "Chhattisgarh",
+      "pincode": "492001",
+      "branchCount": 1,
+      "branches": [
+        {
+          "id": "br-2-1",
+          "branchName": "Pmmpl",
+          "city": "Raipur",
+          "contactPhone": "9876543212"
+        }
+      ],
+      "managerName": "Ahitesh",
+      "managerPhone": "9755632637",
+      "teamLeaderName": "Alauddin",
+      "teamLeaderPhone": "9755632637",
+      "contactEmail": "demo@gmail.com",
+      "gmName": "Jayant Kumar Pandey",
+      "mmName": "Sagar Choudhary",
+      "tseName": "Rajendra Kumar",
+      "salespersonName": "Admin",
+      "salespersonCategory": "ADMIN",
+      "notes": "demo",
+      "createdAt": "2026-11-19T03:36:19.486Z",
+      "updatedAt": "2026-11-19T03:36:19.486Z",
+      "gmId": "",
+      "mmId": "",
+      "tseId": "",
+      "salespersonId": "",
+      "activities": [
+        {
+          "id": "act-KYC-2026-0101",
+          "timestamp": "2026-11-19T03:36:19.486Z",
+          "actorName": "Admin",
+          "actorRole": "manager",
+          "action": "KYC Saved",
+          "detail": "Saved Passary Minerals Private Limited (GM: Jayant Kumar Pandey, MM: Sagar Choudhary, TSE: Rajendra Kumar)."
+        }
+      ]
+    }
+  ],
+  "teamMembers": [
+    {
+      "id": "tm-1795016485360",
+      "name": "Admin",
+      "email": "",
+      "phone": "",
+      "salespersonCategory": "ADMIN",
+      "role": "manager",
+      "territory": "",
+      "status": "active",
+      "password": "admin@1234",
+      "allowedPages": [
+        "overview",
+        "directory",
+        "leaderboard",
+        "loginAccess"
+      ]
+    }
+  ],
+  "masterTeam": [
+    {
+      "id": "master-2",
+      "name": "Jayant Kumar Pandey",
+      "firm": "Pmmpl",
+      "category": "GM"
+    },
+    {
+      "id": "master-3",
+      "name": "Ajay Kumar Gupta",
+      "firm": "Rkl",
+      "category": "GM"
+    },
+    {
+      "id": "master-4",
+      "name": "Saket Agrawal",
+      "firm": "Pmmpl",
+      "category": "MM"
+    },
+    {
+      "id": "master-5",
+      "name": "Prakash Tripathi",
+      "firm": "Rkl",
+      "category": "MM"
+    },
+    {
+      "id": "master-6",
+      "name": "Prakash Kumar Mohanty",
+      "firm": "Rkl",
+      "category": "GM"
+    },
+    {
+      "id": "master-7",
+      "name": "Vijay Kumar Singh",
+      "firm": "Purab",
+      "category": "GM"
+    },
+    {
+      "id": "master-8",
+      "name": "Sandeep Agrawal",
+      "firm": "Purab",
+      "category": "TSE"
+    },
+    {
+      "id": "master-9",
+      "name": "Sagar Choudhary",
+      "firm": "Purab",
+      "category": "MM"
+    },
+    {
+      "id": "master-10",
+      "name": "Chirag choudhary",
+      "firm": "Purab",
+      "category": "MM"
+    },
+    {
+      "id": "master-11",
+      "name": "Anurag Sharma",
+      "firm": "Pmmpl",
+      "category": "MM"
+    },
+    {
+      "id": "master-12",
+      "name": "Arjun Mishra",
+      "firm": "Rkl",
+      "category": "MM"
+    },
+    {
+      "id": "master-13",
+      "name": "Rajendra Kumar",
+      "firm": "Pmmpl",
+      "category": "TSE"
+    },
+    {
+      "id": "master-14",
+      "name": "Hareram Ramkathin Maurya",
+      "firm": "Pmmpl",
+      "category": "TSE"
+    },
+    {
+      "id": "master-15",
+      "name": "Shubham Prabhakar Kawalkar",
+      "firm": "Rkl",
+      "category": "MM"
+    },
+    {
+      "id": "master-16",
+      "name": "Biswajit Patra",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-17",
+      "name": "Vivek kumar mishra",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-18",
+      "name": "Sumit kr saha",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-19",
+      "name": "Tribani Prasad Singh",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-20",
+      "name": "Surajit Kar",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-21",
+      "name": "P Rama Rao",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-22",
+      "name": "Surendra Barik",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-23",
+      "name": "Raj Kumar Shah",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-24",
+      "name": "Preetam Kumar Nayak",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-25",
+      "name": "Yogesh Kumar",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-26",
+      "name": "Afif Sheikh",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-27",
+      "name": "Krishna Kumar Pandit",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-28",
+      "name": "Manoj Kumar Deep",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-29",
+      "name": "Pramod Sah",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-30",
+      "name": "Amarjeet Nayak",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-31",
+      "name": "Pramod Kumar Gope",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-32",
+      "name": "Chandan Singh Chauhan",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-33",
+      "name": "Deepak Chauhan",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-34",
+      "name": "Mahendra Kumar Chauhan",
+      "firm": "Refratech",
+      "category": "TSE"
+    },
+    {
+      "id": "master-35",
+      "name": "ARJUN SAHOO",
+      "firm": "Refratech",
+      "category": "TSE"
+    }
+  ]
+}

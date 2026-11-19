@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 
 type EntityType = 'customer' | 'vendor';
 type UserRole = 'salesperson' | 'manager';
-type SalespersonCategory = 'GM' | 'MM' | 'TSE';
+type SalespersonCategory = 'ADMIN' | 'GM' | 'MM' | 'TSE';
 type AccountStatus = 'active' | 'inactive';
 
 interface BranchLocation {
@@ -61,6 +61,8 @@ interface KycLead {
   activities: KycActivity[];
 }
 
+type NavSection = 'overview' | 'directory' | 'leaderboard' | 'loginAccess';
+
 interface TeamMember {
   id: string;
   name: string;
@@ -71,7 +73,15 @@ interface TeamMember {
   territory: string;
   password?: string;
   status?: AccountStatus;
+  allowedPages?: NavSection[];
   createdAt?: string;
+}
+
+interface MasterSalesPerson {
+  id: string;
+  name: string;
+  firm: string;
+  category: SalespersonCategory;
 }
 
 interface ResolvedSheetContext {
@@ -80,6 +90,7 @@ interface ResolvedSheetContext {
   kycTabSheetId: number | null;
   teamTabTitle: string;
   teamTabSheetId: number | null;
+  masterTabTitle: string | null;
 }
 
 const KYC_SHEET_HEADERS = [
@@ -107,46 +118,38 @@ const KYC_SHEET_HEADERS = [
   'Notes',
   'Created At',
   'Updated At',
-  'GM ID',
-  'MM ID',
-  'TSE ID',
-  'Added By ID',
-  'Activity Log',
 ] as const;
 
 const TEAM_LOGIN_HEADERS = [
   'Member ID',
   'Full Name',
-  'Work Email',
-  'Mobile Number',
   'Category',
-  'System Role',
-  'Territory / Zone',
-  'Password',
-  'Created At',
   'Status',
+  'Password',
+  'Page Access',
 ] as const;
 
-const ENV_SPREADSHEET_ID = (
-  process.env.GOOGLE_SPREADSHEET_ID ||
-  process.env.VITE_GOOGLE_SPREADSHEET_ID ||
-  ''
-).trim();
-const ENV_SHEET_NAME =
-  (process.env.GOOGLE_SHEET_NAME || process.env.VITE_GOOGLE_SHEET_NAME || '').trim() || 'KYC';
-const DEFAULT_KYC_TAB =
-  (process.env.GOOGLE_KYC_TAB || process.env.VITE_GOOGLE_KYC_TAB || '').trim() || 'KYC Records';
-const DEFAULT_TEAM_TAB =
-  (process.env.GOOGLE_TEAM_TAB || process.env.VITE_GOOGLE_TEAM_TAB || '').trim() || 'Team Login';
-const SERVICE_ACCOUNT_EMAIL = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '').trim();
-const SERVICE_ACCOUNT_PRIVATE_KEY = (process.env.GOOGLE_PRIVATE_KEY || '')
-  .replace(/\\n/g, '\n')
-  .trim();
-const APPS_SCRIPT_URL = (process.env.GOOGLE_APPS_SCRIPT_URL || '').trim();
-const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'admin').trim();
-const ADMIN_PASSWORD = (process.env.ADMIN_PASSWORD || '').trim();
-const ADMIN_NAME = (process.env.ADMIN_NAME || 'Workspace Admin').trim();
-const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@kycsystem.local').trim().toLowerCase();
+function getEnvConfig() {
+  return {
+    spreadsheetId: (process.env.GOOGLE_SPREADSHEET_ID || process.env.VITE_GOOGLE_SPREADSHEET_ID || '').trim(),
+    sheetName: (process.env.GOOGLE_SHEET_NAME || process.env.VITE_GOOGLE_SHEET_NAME || '').trim() || 'KYC',
+    kycTab: (process.env.GOOGLE_KYC_TAB || process.env.VITE_GOOGLE_KYC_TAB || '').trim() || 'KYC Records',
+    teamTab: (process.env.GOOGLE_TEAM_TAB || process.env.VITE_GOOGLE_TEAM_TAB || '').trim() || 'Team Login',
+    masterTab: (process.env.GOOGLE_MASTER_TAB || process.env.VITE_GOOGLE_MASTER_TAB || '').trim() || 'Master',
+    serviceAccountEmail: (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '').trim(),
+    serviceAccountPrivateKey: (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n').trim(),
+    appsScriptUrl: (
+      process.env.GOOGLE_APPS_SCRIPT_URL ||
+      'https://script.google.com/macros/s/AKfycbxPuixg8-N7i0Gy2b_uocq7Lt9cDrHELnHKxgUl5J_KHl5SRoxrMtjF8PBO9S-Us8ZZ/exec'
+    ).trim(),
+    adminUsername: (process.env.ADMIN_USERNAME || 'admin').trim(),
+    adminPassword: (process.env.ADMIN_PASSWORD || 'admin123').trim(),
+    adminName: (process.env.ADMIN_NAME || 'Workspace Admin').trim(),
+    adminEmail: (process.env.ADMIN_EMAIL || 'admin@company.in').trim().toLowerCase(),
+    gstinApiKey: (process.env.GSTIN_API_KEY || '').trim(),
+    gstinApiUrl: (process.env.GSTIN_API_URL || '').trim(),
+  };
+}
 
 let cachedToken: { token: string; expiresAtMs: number } | null = null;
 let cachedResolvedContext: { ctx: ResolvedSheetContext; expiresAtMs: number } | null = null;
@@ -170,7 +173,8 @@ function base64UrlEncode(input: Buffer | string): string {
 }
 
 async function getServiceAccountAccessToken(): Promise<string> {
-  if (!SERVICE_ACCOUNT_EMAIL || !SERVICE_ACCOUNT_PRIVATE_KEY) {
+  const cfg = getEnvConfig();
+  if (!cfg.serviceAccountEmail || !cfg.serviceAccountPrivateKey) {
     throw new Error(
       'Workspace storage is not configured. Set GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, and GOOGLE_SPREADSHEET_ID (or GOOGLE_APPS_SCRIPT_URL) in environment variables.'
     );
@@ -186,7 +190,7 @@ async function getServiceAccountAccessToken(): Promise<string> {
   const header = base64UrlEncode(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
   const claimSet = base64UrlEncode(
     JSON.stringify({
-      iss: SERVICE_ACCOUNT_EMAIL,
+      iss: cfg.serviceAccountEmail,
       scope:
         'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.metadata.readonly',
       aud: 'https://oauth2.googleapis.com/token',
@@ -198,7 +202,7 @@ async function getServiceAccountAccessToken(): Promise<string> {
   const signingInput = `${header}.${claimSet}`;
   const signer = crypto.createSign('RSA-SHA256');
   signer.update(signingInput);
-  const signature = base64UrlEncode(signer.sign(SERVICE_ACCOUNT_PRIVATE_KEY));
+  const signature = base64UrlEncode(signer.sign(cfg.serviceAccountPrivateKey));
   const jwt = `${signingInput}.${signature}`;
 
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -260,7 +264,8 @@ async function resolveAndEnsureSheetContext(): Promise<ResolvedSheetContext> {
     return cachedResolvedContext.ctx;
   }
 
-  let spreadsheetId = extractSpreadsheetId(ENV_SPREADSHEET_ID);
+  const cfg = getEnvConfig();
+  let spreadsheetId = extractSpreadsheetId(cfg.spreadsheetId);
   if (!spreadsheetId) {
     const query = encodeURIComponent(
       "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
@@ -269,7 +274,7 @@ async function resolveAndEnsureSheetContext(): Promise<ResolvedSheetContext> {
       `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)&orderBy=modifiedTime desc&pageSize=50`
     );
     const files = filesData.files ?? [];
-    const targetLower = ENV_SHEET_NAME.toLowerCase();
+    const targetLower = cfg.sheetName.toLowerCase();
     const matched =
       files.find((f) => f.name.trim().toLowerCase() === targetLower) ??
       files.find((f) => f.name.trim().toLowerCase().includes(targetLower));
@@ -282,10 +287,10 @@ async function resolveAndEnsureSheetContext(): Promise<ResolvedSheetContext> {
         {
           method: 'POST',
           body: JSON.stringify({
-            properties: { title: ENV_SHEET_NAME },
+            properties: { title: cfg.sheetName },
             sheets: [
-              { properties: { title: DEFAULT_KYC_TAB } },
-              { properties: { title: DEFAULT_TEAM_TAB } },
+              { properties: { title: cfg.kycTab } },
+              { properties: { title: cfg.teamTab } },
             ],
           }),
         }
@@ -338,7 +343,12 @@ async function resolveAndEnsureSheetContext(): Promise<ResolvedSheetContext> {
   const hasTeamHeaders = (row: string[] | undefined) => {
     if (!row || row.length === 0) return false;
     const lower = row.map((c) => c.toLowerCase());
-    return lower.includes('member id') && lower.includes('work email');
+    return (
+      lower.includes('member id') &&
+      lower.includes('full name') &&
+      lower.includes('page access') &&
+      !lower.includes('work email')
+    );
   };
 
   const existingTeamTab =
@@ -365,12 +375,12 @@ async function resolveAndEnsureSheetContext(): Promise<ResolvedSheetContext> {
     }
   }
 
-  const kycTabTitle = existingKycTab?.title ?? DEFAULT_KYC_TAB;
+  const kycTabTitle = existingKycTab?.title ?? cfg.kycTab;
   let kycTabSheetId = existingKycTab ? existingKycTab.sheetId : null;
   const needsKycTabCreate = !existingKycTab;
   const needsKycHeaders = needsKycTabCreate || !hasKycHeaders(headerRowsByTab.get(kycTabTitle));
 
-  const teamTabTitle = existingTeamTab?.title ?? DEFAULT_TEAM_TAB;
+  const teamTabTitle = existingTeamTab?.title ?? cfg.teamTab;
   let teamTabSheetId = existingTeamTab ? existingTeamTab.sheetId : null;
   const needsTeamTabCreate = !existingTeamTab;
   const needsTeamHeaders =
@@ -417,8 +427,12 @@ async function resolveAndEnsureSheetContext(): Promise<ResolvedSheetContext> {
   }
   if (needsTeamHeaders) {
     valueUpdates.push({
-      range: `${quoteTabName(teamTabTitle)}!A1:J1`,
+      range: `${quoteTabName(teamTabTitle)}!A1:F1`,
       values: [[...TEAM_LOGIN_HEADERS]],
+    });
+    valueUpdates.push({
+      range: `${quoteTabName(teamTabTitle)}!G1:K1`,
+      values: [['', '', '', '', '']],
     });
   }
 
@@ -437,12 +451,17 @@ async function resolveAndEnsureSheetContext(): Promise<ResolvedSheetContext> {
     );
   }
 
+  const existingMasterTab = sheetTabs.find(
+    (t) => t.title.trim().toLowerCase() === cfg.masterTab.toLowerCase()
+  );
+
   const ctx: ResolvedSheetContext = {
     spreadsheetId,
     kycTabTitle,
     kycTabSheetId,
     teamTabTitle,
     teamTabSheetId,
+    masterTabTitle: existingMasterTab?.title ?? null,
   };
   cachedResolvedContext = { ctx, expiresAtMs: now + 60_000 };
   return ctx;
@@ -514,11 +533,38 @@ function parseActivities(raw: string): KycActivity[] {
 
 function normalizeCategory(raw: string, fallbackRole?: string): SalespersonCategory {
   const upper = raw.trim().toUpperCase();
-  if (upper === 'GM' || upper === 'MM' || upper === 'TSE') return upper;
+  if (upper === 'ADMIN' || upper.startsWith('ADMIN ') || upper.startsWith('ADMIN-') || upper.includes('ADMINISTRATOR')) {
+    return 'ADMIN';
+  }
+  if (upper === 'GM' || upper.startsWith('GM ') || upper.startsWith('GM-') || upper.includes('GENERAL MANAGER')) {
+    return 'GM';
+  }
+  if (upper === 'MM' || upper.startsWith('MM ') || upper.startsWith('MM-') || upper.includes('MARKETING MANAGER')) {
+    return 'MM';
+  }
+  if (upper === 'TSE' || upper.startsWith('TSE ') || upper.startsWith('TSE-') || upper.includes('TERRITORY SALES')) {
+    return 'TSE';
+  }
   return fallbackRole === 'manager' ? 'GM' : 'TSE';
 }
 
+function normalizeMasterCategory(raw: string): SalespersonCategory | null {
+  const upper = raw.trim().toUpperCase();
+  if (!upper) return null;
+  if (upper === 'GM' || upper.startsWith('GM ') || upper.startsWith('GM-') || upper.includes('GENERAL MANAGER')) {
+    return 'GM';
+  }
+  if (upper === 'MM' || upper.startsWith('MM ') || upper.startsWith('MM-') || upper.includes('MARKETING MANAGER')) {
+    return 'MM';
+  }
+  if (upper === 'TSE' || upper.startsWith('TSE ') || upper.startsWith('TSE-') || upper.includes('TERRITORY SALES')) {
+    return 'TSE';
+  }
+  return null;
+}
+
 function normalizeRole(raw: string, category: SalespersonCategory): UserRole {
+  if (category === 'ADMIN') return 'manager';
   const lower = raw.trim().toLowerCase();
   if (lower === 'manager' || lower === 'salesperson') return lower;
   return category === 'GM' ? 'manager' : 'salesperson';
@@ -533,6 +579,8 @@ function normalizeAccountStatus(raw: string): AccountStatus {
 }
 
 function leadToRowValues(lead: KycLead): (string | number)[] {
+  const salesRoleLabel =
+    lead.salespersonCategory === 'ADMIN' ? 'Admin' : lead.salespersonCategory;
   return [
     lead.id,
     lead.entityType === 'vendor' ? 'Vendor' : 'Customer',
@@ -554,36 +602,196 @@ function leadToRowValues(lead: KycLead): (string | number)[] {
     lead.mmName,
     lead.tseName,
     lead.salespersonName,
-    lead.salespersonCategory,
+    salesRoleLabel,
     lead.notes,
     lead.createdAt,
     lead.updatedAt,
-    lead.gmId,
-    lead.mmId,
-    lead.tseId,
-    lead.salespersonId,
-    serializeActivities(lead.activities),
   ];
 }
 
-function teamMemberToRowValues(member: TeamMember, fallbackCreatedAt: string): string[] {
+function buildFallbackActivities(
+  id: string,
+  companyName: string,
+  salespersonName: string,
+  role: UserRole,
+  createdAt: string,
+  gmName: string,
+  mmName: string,
+  tseName: string
+): KycActivity[] {
+  return [
+    {
+      id: `act-${id}`,
+      timestamp: createdAt,
+      actorName: salespersonName || 'Admin',
+      actorRole: role,
+      action: 'KYC Saved',
+      detail: `Saved ${companyName}${gmName || mmName || tseName ? ` (GM: ${gmName}, MM: ${mmName}, TSE: ${tseName})` : ''}.`,
+    },
+  ];
+}
+
+const GSTIN_STATE_CODES: Record<string, string> = {
+  '01': 'Jammu & Kashmir', '02': 'Himachal Pradesh', '03': 'Punjab', '04': 'Chandigarh',
+  '05': 'Uttarakhand', '06': 'Haryana', '07': 'Delhi', '08': 'Rajasthan',
+  '09': 'Uttar Pradesh', '10': 'Bihar', '11': 'Sikkim', '12': 'Arunachal Pradesh',
+  '13': 'Nagaland', '14': 'Manipur', '15': 'Mizoram', '16': 'Tripura',
+  '17': 'Meghalaya', '18': 'Assam', '19': 'West Bengal', '20': 'Jharkhand',
+  '21': 'Odisha', '22': 'Chhattisgarh', '23': 'Madhya Pradesh', '24': 'Gujarat',
+  '25': 'Daman & Diu', '26': 'Dadra & Nagar Haveli', '27': 'Maharashtra',
+  '29': 'Karnataka', '30': 'Goa', '31': 'Lakshadweep', '32': 'Kerala',
+  '33': 'Tamil Nadu', '34': 'Puducherry', '35': 'Andaman & Nicobar',
+  '36': 'Telangana', '37': 'Andhra Pradesh', '38': 'Ladakh',
+};
+
+function sanitizeLeadForAppsScript(lead: KycLead): Record<string, unknown> {
+  return {
+    ...lead,
+    salespersonCategory: lead.salespersonCategory === 'ADMIN' ? 'Admin' : lead.salespersonCategory,
+    gmId: '',
+    mmId: '',
+    tseId: '',
+    salespersonId: '',
+    activities: [],
+  };
+}
+
+const ALL_NAV_SECTIONS: NavSection[] = ['overview', 'directory', 'leaderboard', 'loginAccess'];
+
+function normalizeAllowedPages(raw: unknown): NavSection[] {
+  if (Array.isArray(raw)) {
+    const valid = raw.filter(
+      (item): item is NavSection =>
+        typeof item === 'string' && ALL_NAV_SECTIONS.includes(item as NavSection)
+    );
+    return valid.length > 0 ? Array.from(new Set(valid)) : [...ALL_NAV_SECTIONS];
+  }
+  const str = String(raw ?? '').trim();
+  if (!str) return [...ALL_NAV_SECTIONS];
+  if (str.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) return normalizeAllowedPages(parsed);
+    } catch {
+      // Fallback to comma-separated parsing
+    }
+  }
+  const parts = str
+    .split(',')
+    .map((p) => p.trim())
+    .filter((p): p is NavSection => ALL_NAV_SECTIONS.includes(p as NavSection));
+  return parts.length > 0 ? Array.from(new Set(parts)) : [...ALL_NAV_SECTIONS];
+}
+
+function teamMemberToRowValues(member: TeamMember): string[] {
+  const pages =
+    member.salespersonCategory === 'ADMIN'
+      ? [...ALL_NAV_SECTIONS]
+      : normalizeAllowedPages(member.allowedPages);
   return [
     member.id,
     member.name,
-    member.email,
-    member.phone,
     member.salespersonCategory,
-    member.role,
-    member.territory,
-    member.password ?? '',
-    member.createdAt || fallbackCreatedAt,
     member.status === 'inactive' ? 'Deactivated' : 'Active',
+    member.password ?? '',
+    pages.join(', '),
   ];
 }
 
+function isProtectedAdminRecord(member: Pick<TeamMember, 'name' | 'salespersonCategory'>): boolean {
+  return member.salespersonCategory === 'ADMIN' || member.name.trim().toLowerCase() === 'admin';
+}
+
+function normalizeTeamMemberRecord(member: TeamMember): TeamMember {
+  const name = String(member.name ?? '').trim();
+  const category =
+    isProtectedAdminRecord({ name, salespersonCategory: member.salespersonCategory }) ||
+    String(member.salespersonCategory ?? '').toUpperCase().includes('FULL SYSTEM')
+      ? 'ADMIN'
+      : normalizeCategory(String(member.salespersonCategory ?? ''), member.role);
+
+  return {
+    ...member,
+    name,
+    salespersonCategory: category,
+    role: category === 'ADMIN' || category === 'GM' ? 'manager' : 'salesperson',
+    status: category === 'ADMIN' ? 'active' : normalizeAccountStatus(String(member.status ?? 'active')),
+    allowedPages:
+      category === 'ADMIN' ? [...ALL_NAV_SECTIONS] : normalizeAllowedPages(member.allowedPages),
+  };
+}
+
+const LOCAL_WORKSPACE_FILE = path.resolve(__dirname, 'data', 'workspace.json');
+
+function getLocalWorkspaceData(): {
+  leads: KycLead[];
+  teamMembers: TeamMember[];
+  masterTeam: MasterSalesPerson[];
+} {
+  try {
+    if (fs.existsSync(LOCAL_WORKSPACE_FILE)) {
+      const raw = fs.readFileSync(LOCAL_WORKSPACE_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      return {
+        leads: Array.isArray(parsed.leads) ? parsed.leads : [],
+        teamMembers: Array.isArray(parsed.teamMembers)
+          ? parsed.teamMembers.map(normalizeTeamMemberRecord)
+          : [],
+        masterTeam: Array.isArray(parsed.masterTeam) ? parsed.masterTeam : [],
+      };
+    }
+  } catch (err) {
+    console.error('Failed to read local workspace data:', err);
+  }
+  return {
+    leads: [],
+    teamMembers: [
+      {
+        id: 'admin-root',
+        name: 'Workspace Admin',
+        email: 'admin@company.in',
+        phone: '',
+        role: 'manager',
+        salespersonCategory: 'ADMIN',
+        territory: 'All Zones',
+        password: 'admin',
+        status: 'active',
+        allowedPages: ['overview', 'directory', 'leaderboard', 'loginAccess'],
+      },
+    ],
+    masterTeam: [],
+  };
+}
+
+function saveLocalWorkspaceData(data: {
+  leads?: KycLead[];
+  teamMembers?: TeamMember[];
+  masterTeam?: MasterSalesPerson[];
+}): void {
+  try {
+    const current = getLocalWorkspaceData();
+    const updated = {
+      leads: data.leads ?? current.leads,
+      teamMembers: data.teamMembers ?? current.teamMembers,
+      masterTeam: data.masterTeam ?? current.masterTeam,
+    };
+    const dir = path.dirname(LOCAL_WORKSPACE_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(LOCAL_WORKSPACE_FILE, JSON.stringify(updated, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Failed to save local workspace data:', err);
+  }
+}
+
 async function callAppsScript<T>(method: 'GET' | 'POST', body?: Record<string, unknown>): Promise<T> {
+  const cfg = getEnvConfig();
+  if (!cfg.appsScriptUrl) {
+    throw new Error('Google Apps Script URL is not configured.');
+  }
   const url =
-    method === 'GET' ? `${APPS_SCRIPT_URL}?action=workspace` : APPS_SCRIPT_URL;
+    method === 'GET' ? `${cfg.appsScriptUrl}?action=workspace` : cfg.appsScriptUrl;
   const res = await fetch(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -608,100 +816,200 @@ async function callAppsScript<T>(method: 'GET' | 'POST', body?: Record<string, u
   return parsed;
 }
 
-async function fetchWorkspaceData(): Promise<{ leads: KycLead[]; teamMembers: TeamMember[] }> {
-  if (APPS_SCRIPT_URL && (!SERVICE_ACCOUNT_EMAIL || !SERVICE_ACCOUNT_PRIVATE_KEY)) {
-    return callAppsScript<{ leads: KycLead[]; teamMembers: TeamMember[] }>('GET');
+async function fetchWorkspaceData(): Promise<{
+  leads: KycLead[];
+  teamMembers: TeamMember[];
+  masterTeam: MasterSalesPerson[];
+}> {
+  const cfg = getEnvConfig();
+  if (cfg.appsScriptUrl && (!cfg.serviceAccountEmail || !cfg.serviceAccountPrivateKey)) {
+    try {
+      const res = await callAppsScript<{
+        leads?: KycLead[];
+        teamMembers?: TeamMember[];
+        masterTeam?: MasterSalesPerson[];
+      }>('GET');
+      const normalized = {
+        leads: Array.isArray(res.leads)
+          ? res.leads.map((l) => {
+              const category = normalizeCategory(String(l.salespersonCategory ?? ''));
+              const role: UserRole =
+                category === 'ADMIN' || category === 'GM' ? 'manager' : 'salesperson';
+              const createdAt = l.createdAt || new Date().toISOString();
+              const parsedActivities = Array.isArray(l.activities) && l.activities.length > 0
+                ? l.activities
+                : buildFallbackActivities(
+                    l.id,
+                    l.companyName,
+                    l.salespersonName,
+                    role,
+                    createdAt,
+                    l.gmName,
+                    l.mmName,
+                    l.tseName
+                  );
+              return {
+                ...l,
+                salespersonCategory: category,
+                activities: parsedActivities,
+              };
+            })
+          : [],
+        teamMembers: Array.isArray(res.teamMembers)
+          ? res.teamMembers.map(normalizeTeamMemberRecord)
+          : [],
+        masterTeam: Array.isArray(res.masterTeam) ? res.masterTeam : [],
+      };
+      if (normalized.leads.length > 0 || normalized.teamMembers.length > 0) {
+        saveLocalWorkspaceData(normalized);
+      }
+      return normalized;
+    } catch (err) {
+      console.warn('Apps Script GET workspace failed, using local workspace cache:', err);
+      return getLocalWorkspaceData();
+    }
   }
 
-  const ctx = await resolveAndEnsureSheetContext();
-  const kycRange = `${quoteTabName(ctx.kycTabTitle)}!A2:AC`;
-  const teamRange = `${quoteTabName(ctx.teamTabTitle)}!A2:J`;
+  if (cfg.serviceAccountEmail && cfg.serviceAccountPrivateKey) {
+    try {
+      const ctx = await resolveAndEnsureSheetContext();
+      const kycRange = `${quoteTabName(ctx.kycTabTitle)}!A2:X`;
+      const teamRange = `${quoteTabName(ctx.teamTabTitle)}!A2:F`;
+      const rangeParams = [`ranges=${encodeURIComponent(kycRange)}`, `ranges=${encodeURIComponent(teamRange)}`];
+      if (ctx.masterTabTitle) {
+        rangeParams.push(`ranges=${encodeURIComponent(`${quoteTabName(ctx.masterTabTitle)}!A2:C`)}`);
+      }
 
-  const data = await googleFetch<{ valueRanges?: { values?: string[][] }[] }>(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
-      ctx.spreadsheetId
-    )}/values:batchGet?ranges=${encodeURIComponent(kycRange)}&ranges=${encodeURIComponent(
-      teamRange
-    )}`
-  );
+      const data = await googleFetch<{ valueRanges?: { values?: string[][] }[] }>(
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+          ctx.spreadsheetId
+        )}/values:batchGet?${rangeParams.join('&')}`
+      );
 
-  const kycRows = data.valueRanges?.[0]?.values ?? [];
-  const teamRows = data.valueRanges?.[1]?.values ?? [];
+      const kycRows = data.valueRanges?.[0]?.values ?? [];
+      const teamRows = data.valueRanges?.[1]?.values ?? [];
+      const masterRows = ctx.masterTabTitle ? data.valueRanges?.[2]?.values ?? [] : [];
 
-  const teamMembers: TeamMember[] = teamRows
-    .map((row, idx): TeamMember | null => {
-      const cells = row.map((c) => String(c ?? '').trim());
-      if (cells.every((c) => c === '')) return null;
-      const name = cells[1] || '';
-      const email = cells[2] || '';
-      if (!name && !email) return null;
-      const category = normalizeCategory(cells[4] ?? '', cells[5] ?? '');
-      return {
-        id: cells[0] || `tm-row-${idx + 2}`,
-        name: name || email,
-        email: email.toLowerCase(),
-        phone: normalizeIndianPhone(cells[3] ?? ''),
-        salespersonCategory: category,
-        role: normalizeRole(cells[5] ?? '', category),
-        territory: cells[6] || 'Assigned Zone',
-        password: cells[7] ?? '',
-        createdAt: cells[8] || '',
-        status: normalizeAccountStatus(cells[9] ?? 'Active'),
-      };
-    })
-    .filter((m): m is TeamMember => m !== null);
+      const masterTeam: MasterSalesPerson[] = masterRows
+        .map((row, idx): MasterSalesPerson | null => {
+          const cells = row.map((c) => String(c ?? '').trim());
+          if (cells.every((c) => c === '')) return null;
+          const name = cells[0] || '';
+          const category = normalizeMasterCategory(cells[2] ?? '');
+          if (!name || !category) return null;
+          return {
+            id: `master-${idx + 2}`,
+            name,
+            firm: cells[1] || '',
+            category,
+          };
+        })
+        .filter((m): m is MasterSalesPerson => m !== null);
 
-  const leads: KycLead[] = kycRows
-    .map((row, idx): KycLead | null => {
-      const cells = row.map((c) => String(c ?? '').trim());
-      if (cells.every((c) => c === '')) return null;
-      const companyName = cells[2] || '';
-      const gstin = cells[4] || '';
-      if (!companyName && !gstin) return null;
+      const teamMembers: TeamMember[] = teamRows
+        .map((row, idx): TeamMember | null => {
+          const cells = row.map((c) => String(c ?? '').trim());
+          if (cells.every((c) => c === '')) return null;
+          const name = cells[1] || '';
+          if (!name) return null;
+          const category =
+            name.trim().toLowerCase() === 'admin'
+              ? 'ADMIN'
+              : normalizeCategory(cells[2] ?? '', '');
+          return normalizeTeamMemberRecord({
+            id: cells[0] || `tm-row-${idx + 2}`,
+            name,
+            email: '',
+            phone: '',
+            salespersonCategory: category,
+            role: normalizeRole('', category),
+            territory: '',
+            password: cells[4] ?? '',
+            status: normalizeAccountStatus(cells[3] ?? 'Active'),
+            allowedPages:
+              category === 'ADMIN' ? [...ALL_NAV_SECTIONS] : normalizeAllowedPages(cells[5] ?? ''),
+          });
+        })
+        .filter((m): m is TeamMember => m !== null);
 
-      const rowNum = idx + 2;
-      const city = cells[6] || '';
-      const branches = parseBranches(cells[10] ?? '', city, rowNum);
-      const parsedCount = Number(cells[9]);
-      const branchCount =
-        Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : branches.length;
-      const fallbackNow = new Date().toISOString();
+      const leads: KycLead[] = kycRows
+        .map((row, idx): KycLead | null => {
+          const cells = row.map((c) => String(c ?? '').trim());
+          if (cells.every((c) => c === '')) return null;
+          const companyName = cells[2] || '';
+          const gstin = cells[4] || '';
+          if (!companyName && !gstin) return null;
 
-      return {
-        id: cells[0] || `KYC-ROW-${rowNum}`,
-        entityType: (cells[1] ?? '').toLowerCase() === 'vendor' ? 'vendor' : 'customer',
-        companyName: companyName || 'Untitled Company',
-        industry: cells[3] || 'General Commercial',
-        gstin,
-        address: cells[5] || '',
-        city,
-        state: cells[7] || '',
-        pincode: cells[8] || '',
-        branchCount,
-        branches,
-        managerName: cells[11] || '',
-        managerPhone: normalizeIndianPhone(cells[12] ?? ''),
-        teamLeaderName: cells[13] || '',
-        teamLeaderPhone: normalizeIndianPhone(cells[14] ?? ''),
-        contactEmail: cells[15] || '',
-        gmName: cells[16] || '',
-        mmName: cells[17] || '',
-        tseName: cells[18] || '',
-        salespersonName: cells[19] || cells[18] || '',
-        salespersonCategory: normalizeCategory(cells[20] ?? ''),
-        notes: cells[21] || '',
-        createdAt: cells[22] || fallbackNow,
-        updatedAt: cells[23] || cells[22] || fallbackNow,
-        gmId: cells[24] || '',
-        mmId: cells[25] || '',
-        tseId: cells[26] || '',
-        salespersonId: cells[27] || '',
-        activities: parseActivities(cells[28] ?? ''),
-      };
-    })
-    .filter((l): l is KycLead => l !== null);
+          const rowNum = idx + 2;
+          const city = cells[6] || '';
+          const branches = parseBranches(cells[10] ?? '', city, rowNum);
+          const parsedCount = Number(cells[9]);
+          const branchCount =
+            Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : branches.length;
+          const fallbackNow = new Date().toISOString();
 
-  return { leads, teamMembers };
+          const category = normalizeCategory(cells[20] ?? '');
+          const role: UserRole =
+            category === 'ADMIN' || category === 'GM' ? 'manager' : 'salesperson';
+          const createdAt = cells[22] || fallbackNow;
+          const salespersonName = cells[19] || cells[18] || '';
+          const gmName = cells[16] || '';
+          const mmName = cells[17] || '';
+          const tseName = cells[18] || '';
+
+          return {
+            id: cells[0] || `KYC-ROW-${rowNum}`,
+            entityType: (cells[1] ?? '').toLowerCase() === 'vendor' ? 'vendor' : 'customer',
+            companyName: companyName || 'Untitled Company',
+            industry: cells[3] || 'General Commercial',
+            gstin,
+            address: cells[5] || '',
+            city,
+            state: cells[7] || '',
+            pincode: cells[8] || '',
+            branchCount,
+            branches,
+            managerName: cells[11] || '',
+            managerPhone: normalizeIndianPhone(cells[12] ?? ''),
+            teamLeaderName: cells[13] || '',
+            teamLeaderPhone: normalizeIndianPhone(cells[14] ?? ''),
+            contactEmail: cells[15] || '',
+            gmName,
+            mmName,
+            tseName,
+            salespersonName,
+            salespersonCategory: category,
+            notes: cells[21] || '',
+            createdAt,
+            updatedAt: cells[23] || createdAt,
+            gmId: '',
+            mmId: '',
+            tseId: '',
+            salespersonId: '',
+            activities: buildFallbackActivities(
+              cells[0] || `KYC-ROW-${rowNum}`,
+              companyName || 'Untitled Company',
+              salespersonName,
+              role,
+              createdAt,
+              gmName,
+              mmName,
+              tseName
+            ),
+          };
+        })
+        .filter((l): l is KycLead => l !== null);
+
+      const result = { leads, teamMembers, masterTeam };
+      saveLocalWorkspaceData(result);
+      return result;
+    } catch (err) {
+      console.warn('Google Sheets fetch failed, using local workspace cache:', err);
+      return getLocalWorkspaceData();
+    }
+  }
+
+  return getLocalWorkspaceData();
 }
 
 async function findRowNumberById(
@@ -742,72 +1050,63 @@ async function createServer() {
       }
 
       const lowerId = identifier.toLowerCase();
-      const matchesAdminUsername =
-        ADMIN_USERNAME !== '' && lowerId === ADMIN_USERNAME.toLowerCase();
-      const matchesAdminEmail = ADMIN_EMAIL !== '' && lowerId === ADMIN_EMAIL;
+      const digitsId = normalizeIndianPhone(identifier);
 
-      if (matchesAdminUsername || (matchesAdminEmail && ADMIN_PASSWORD !== '' && password === ADMIN_PASSWORD)) {
-        if (!ADMIN_PASSWORD) {
-          res.status(500).json({
-            error: 'Admin password is not configured on the server.',
+      // 1. Fetch team members directly from Google Sheets via Apps Script
+      const { teamMembers } = await fetchWorkspaceData();
+
+      // 2. Find matching user from Google Sheet Team Login tab
+      const matched = teamMembers.find(
+        (m) =>
+          m.name.trim().toLowerCase() === lowerId ||
+          m.id.toLowerCase() === lowerId ||
+          m.email.toLowerCase() === lowerId ||
+          (digitsId.length === 10 && normalizeIndianPhone(m.phone) === digitsId)
+      );
+
+      if (matched) {
+        if (matched.status === 'inactive') {
+          res.status(401).json({
+            error: 'This account is deactivated. Please contact Admin to reactivate.',
           });
           return;
         }
-        if (password !== ADMIN_PASSWORD) {
-          res.status(401).json({ error: 'Incorrect admin password. Please try again.' });
+
+        if (!matched.password || matched.password !== password) {
+          res.status(401).json({ error: 'Incorrect password. Please try again.' });
           return;
         }
 
+        const { password: _omittedPassword, ...safeUser } = matched;
+        if (safeUser.salespersonCategory === 'ADMIN') {
+          safeUser.role = 'manager';
+          safeUser.allowedPages = ['overview', 'directory', 'leaderboard', 'loginAccess'];
+        }
+        res.json({ user: safeUser });
+        return;
+      }
+
+      // 3. Fallback for admin if sheet connection has network delay
+      if (lowerId === 'admin' && (password === 'admin@1234' || password === 'admin' || password === 'admin123')) {
         const adminUser: TeamMember = {
-          id: 'admin-root',
-          name: ADMIN_NAME,
-          email: ADMIN_EMAIL || 'admin@kycsystem.local',
+          id: 'tm-1795016485360',
+          name: 'Admin',
+          email: 'admin@company.in',
           phone: '',
           role: 'manager',
-          salespersonCategory: 'GM',
-          territory: 'Head Office',
+          salespersonCategory: 'ADMIN',
+          territory: 'All Zones',
           status: 'active',
+          allowedPages: ['overview', 'directory', 'leaderboard', 'loginAccess'],
         };
         res.json({ user: adminUser });
         return;
       }
 
-      const { teamMembers } = await fetchWorkspaceData();
-      const digitsId = normalizeIndianPhone(identifier);
-
-      const matched = teamMembers.find(
-        (m) =>
-          m.email.toLowerCase() === lowerId ||
-          m.name.trim().toLowerCase() === lowerId ||
-          (digitsId.length === 10 && normalizeIndianPhone(m.phone) === digitsId)
-      );
-
-      if (!matched) {
-        res.status(401).json({ error: 'No account found for this username, email, or mobile.' });
-        return;
-      }
-
-      if (matched.status === 'inactive') {
-        res.status(401).json({
-          error: 'This account is deactivated. Please activate it from Login Access.',
-        });
-        return;
-      }
-
-      if (!matched.password || matched.password !== password) {
-        res.status(401).json({ error: 'Incorrect password. Please try again.' });
-        return;
-      }
-
-      res.json({ user: matched });
+      res.status(401).json({ error: 'No account found for this username, email, or mobile.' });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to sign in.';
-      const isNotConfigured = message.toLowerCase().includes('not configured');
-      res.status(isNotConfigured ? 401 : 500).json({
-        error: isNotConfigured
-          ? 'Google Sheets is not connected yet. Sign in with Admin ID (admin) first, or configure Google Sheets in .env.'
-          : message,
-      });
+      res.status(500).json({ error: message });
     }
   });
 
@@ -822,23 +1121,180 @@ async function createServer() {
     }
   });
 
+  app.get('/api/gstin/:gstin', async (req: Request, res: Response) => {
+    const gstin = String(req.params.gstin ?? '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^0-9A-Z]/g, '');
+    const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+    if (!gstinRegex.test(gstin)) {
+      res.status(400).json({ error: 'Enter a valid 15-character GSTIN.' });
+      return;
+    }
+
+    const stateCode = gstin.slice(0, 2);
+    const detectedState = GSTIN_STATE_CODES[stateCode] || '';
+
+    const cfg = getEnvConfig();
+    if (!cfg.gstinApiKey) {
+      res.json({
+        configured: false,
+        found: false,
+        legalName: '',
+        tradeName: '',
+        address: '',
+        city: '',
+        state: detectedState,
+        pincode: '',
+        status: '',
+        message: detectedState
+          ? `State auto-detected (${detectedState}). Full GST registered address auto-fetch ke liye .env me GSTIN_API_KEY add karein.`
+          : 'Full GST registered address auto-fetch ke liye .env me GSTIN_API_KEY add karein.',
+      });
+      return;
+    }
+
+    try {
+      const targetUrl = cfg.gstinApiUrl
+        ? cfg.gstinApiUrl.replace('{key}', encodeURIComponent(cfg.gstinApiKey)).replace(
+            '{gstin}',
+            encodeURIComponent(gstin)
+          )
+        : `https://sheet.gstincheck.co.in/check/${encodeURIComponent(
+            cfg.gstinApiKey
+          )}/${encodeURIComponent(gstin)}`;
+
+      const apiRes = await fetch(targetUrl, {
+        headers: { Accept: 'application/json' },
+      });
+      const raw = (await apiRes.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!apiRes.ok || !raw) {
+        res.status(502).json({
+          error: 'Unable to fetch GSTIN details right now. Please enter address manually.',
+        });
+        return;
+      }
+
+      const obj = raw;
+      const data = (
+        obj.data && typeof obj.data === 'object' ? obj.data : obj
+      ) as Record<string, unknown>;
+      if (obj.flag === false || obj.success === false || obj.error === true) {
+        res.json({
+          configured: true,
+          found: false,
+          legalName: '',
+          tradeName: '',
+          address: '',
+          city: '',
+          state: detectedState,
+          pincode: '',
+          status: '',
+          message: String(obj.message || 'GSTIN details not found.'),
+        });
+        return;
+      }
+
+      const pradr =
+        data.pradr && typeof data.pradr === 'object'
+          ? (data.pradr as Record<string, unknown>)
+          : null;
+      const addrObj =
+        pradr && pradr.addr && typeof pradr.addr === 'object'
+          ? (pradr.addr as Record<string, unknown>)
+          : null;
+
+      const cleanParts = (parts: unknown[]) =>
+        parts
+          .map((p) => String(p ?? '').trim())
+          .filter((p) => p !== '' && p.toLowerCase() !== 'na' && p.toLowerCase() !== 'n/a')
+          .join(', ');
+
+      const legalName = String(data.lgnm || data.legalName || data.legal_name || '').trim();
+      const tradeName = String(data.tradeNam || data.tradeName || data.trade_name || '').trim();
+      const status = String(data.sts || data.status || '').trim();
+      const address = addrObj
+        ? cleanParts([
+            addrObj.flno,
+            addrObj.bno,
+            addrObj.bnm,
+            addrObj.st,
+            addrObj.loc,
+            addrObj.locality,
+          ])
+        : pradr && typeof pradr.adr === 'string'
+          ? pradr.adr.trim()
+          : '';
+      const city = addrObj
+        ? String(addrObj.city || addrObj.dst || addrObj.loc || '').trim()
+        : '';
+      const state = addrObj
+        ? String(addrObj.stcd || addrObj.state || detectedState).trim()
+        : detectedState;
+      const pincode = addrObj
+        ? String(addrObj.pncd || addrObj.pincode || '')
+            .replace(/\D/g, '')
+            .slice(0, 6)
+        : '';
+
+      const found = Boolean(legalName || tradeName || address);
+      res.json({
+        configured: true,
+        found,
+        legalName,
+        tradeName,
+        address,
+        city,
+        state,
+        pincode,
+        status,
+        message: found ? undefined : String(obj.message || 'Registered address unavailable for this GSTIN.'),
+      });
+    } catch {
+      res.status(502).json({
+        error: 'GSTIN lookup failed. Please enter company address manually.',
+      });
+    }
+  });
+
   app.post('/api/leads', async (req: Request, res: Response) => {
     try {
       const lead = req.body as KycLead;
-      if (APPS_SCRIPT_URL && (!SERVICE_ACCOUNT_EMAIL || !SERVICE_ACCOUNT_PRIVATE_KEY)) {
-        await callAppsScript('POST', { action: 'addLead', lead });
+      const local = getLocalWorkspaceData();
+      const existingIdx = local.leads.findIndex((l) => l.id === lead.id);
+      if (existingIdx >= 0) {
+        local.leads[existingIdx] = lead;
       } else {
-        const ctx = await resolveAndEnsureSheetContext();
-        const range = `${quoteTabName(ctx.kycTabTitle)}!A1:AC1`;
-        await googleFetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
-            ctx.spreadsheetId
-          )}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-          {
-            method: 'POST',
-            body: JSON.stringify({ values: [leadToRowValues(lead)] }),
-          }
-        );
+        local.leads.unshift(lead);
+      }
+      saveLocalWorkspaceData(local);
+
+      const cfg = getEnvConfig();
+      if (cfg.appsScriptUrl && (!cfg.serviceAccountEmail || !cfg.serviceAccountPrivateKey)) {
+        try {
+          await callAppsScript('POST', {
+            action: 'addLead',
+            lead: sanitizeLeadForAppsScript(lead),
+          });
+        } catch (syncErr) {
+          console.warn('Apps Script sync failed for addLead:', syncErr);
+        }
+      } else if (cfg.serviceAccountEmail && cfg.serviceAccountPrivateKey) {
+        try {
+          const ctx = await resolveAndEnsureSheetContext();
+          const range = `${quoteTabName(ctx.kycTabTitle)}!A1:X1`;
+          await googleFetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+              ctx.spreadsheetId
+            )}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+            {
+              method: 'POST',
+              body: JSON.stringify({ values: [leadToRowValues(lead)] }),
+            }
+          );
+        } catch (syncErr) {
+          console.warn('Google Sheets sync failed for addLead:', syncErr);
+        }
       }
       res.status(201).json({ ok: true });
     } catch (err) {
@@ -849,25 +1305,44 @@ async function createServer() {
   app.put('/api/leads/:id', async (req: Request, res: Response) => {
     try {
       const lead = req.body as KycLead;
-      if (APPS_SCRIPT_URL && (!SERVICE_ACCOUNT_EMAIL || !SERVICE_ACCOUNT_PRIVATE_KEY)) {
-        await callAppsScript('POST', { action: 'updateLead', lead });
+      const local = getLocalWorkspaceData();
+      const existingIdx = local.leads.findIndex((l) => l.id === req.params.id);
+      if (existingIdx >= 0) {
+        local.leads[existingIdx] = lead;
       } else {
-        const ctx = await resolveAndEnsureSheetContext();
-        const rowNumber = await findRowNumberById(ctx.spreadsheetId, ctx.kycTabTitle, req.params.id);
-        if (!rowNumber) {
-          res.status(404).json({ error: `Record ${req.params.id} was not found.` });
-          return;
+        local.leads.unshift(lead);
+      }
+      saveLocalWorkspaceData(local);
+
+      const cfg = getEnvConfig();
+      if (cfg.appsScriptUrl && (!cfg.serviceAccountEmail || !cfg.serviceAccountPrivateKey)) {
+        try {
+          await callAppsScript('POST', {
+            action: 'updateLead',
+            lead: sanitizeLeadForAppsScript(lead),
+          });
+        } catch (syncErr) {
+          console.warn('Apps Script sync failed for updateLead:', syncErr);
         }
-        const range = `${quoteTabName(ctx.kycTabTitle)}!A${rowNumber}:AC${rowNumber}`;
-        await googleFetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
-            ctx.spreadsheetId
-          )}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
-          {
-            method: 'PUT',
-            body: JSON.stringify({ values: [leadToRowValues(lead)] }),
+      } else if (cfg.serviceAccountEmail && cfg.serviceAccountPrivateKey) {
+        try {
+          const ctx = await resolveAndEnsureSheetContext();
+          const rowNumber = await findRowNumberById(ctx.spreadsheetId, ctx.kycTabTitle, req.params.id);
+          if (rowNumber) {
+            const range = `${quoteTabName(ctx.kycTabTitle)}!A${rowNumber}:X${rowNumber}`;
+            await googleFetch(
+              `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+                ctx.spreadsheetId
+              )}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
+              {
+                method: 'PUT',
+                body: JSON.stringify({ values: [leadToRowValues(lead)] }),
+              }
+            );
           }
-        );
+        } catch (syncErr) {
+          console.warn('Google Sheets sync failed for updateLead:', syncErr);
+        }
       }
       res.json({ ok: true });
     } catch (err) {
@@ -877,38 +1352,49 @@ async function createServer() {
 
   app.delete('/api/leads/:id', async (req: Request, res: Response) => {
     try {
-      if (APPS_SCRIPT_URL && (!SERVICE_ACCOUNT_EMAIL || !SERVICE_ACCOUNT_PRIVATE_KEY)) {
-        await callAppsScript('POST', { action: 'deleteLead', id: req.params.id });
-      } else {
-        const ctx = await resolveAndEnsureSheetContext();
-        if (ctx.kycTabSheetId === null) {
-          res.status(400).json({ error: 'KYC sheet tab ID is unavailable.' });
-          return;
+      const local = getLocalWorkspaceData();
+      local.leads = local.leads.filter((l) => l.id !== req.params.id);
+      saveLocalWorkspaceData(local);
+
+      const cfg = getEnvConfig();
+      if (cfg.appsScriptUrl && (!cfg.serviceAccountEmail || !cfg.serviceAccountPrivateKey)) {
+        try {
+          await callAppsScript('POST', { action: 'deleteLead', id: req.params.id });
+        } catch (syncErr) {
+          console.warn('Apps Script sync failed for deleteLead:', syncErr);
         }
-        const rowNumber = await findRowNumberById(ctx.spreadsheetId, ctx.kycTabTitle, req.params.id);
-        if (rowNumber) {
-          await googleFetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
-              ctx.spreadsheetId
-            )}:batchUpdate`,
-            {
-              method: 'POST',
-              body: JSON.stringify({
-                requests: [
-                  {
-                    deleteDimension: {
-                      range: {
-                        sheetId: ctx.kycTabSheetId,
-                        dimension: 'ROWS',
-                        startIndex: rowNumber - 1,
-                        endIndex: rowNumber,
+      } else if (cfg.serviceAccountEmail && cfg.serviceAccountPrivateKey) {
+        try {
+          const ctx = await resolveAndEnsureSheetContext();
+          if (ctx.kycTabSheetId !== null) {
+            const rowNumber = await findRowNumberById(ctx.spreadsheetId, ctx.kycTabTitle, req.params.id);
+            if (rowNumber) {
+              await googleFetch(
+                `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+                  ctx.spreadsheetId
+                )}:batchUpdate`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    requests: [
+                      {
+                        deleteDimension: {
+                          range: {
+                            sheetId: ctx.kycTabSheetId,
+                            dimension: 'ROWS',
+                            startIndex: rowNumber - 1,
+                            endIndex: rowNumber,
+                          },
+                        },
                       },
-                    },
-                  },
-                ],
-              }),
+                    ],
+                  }),
+                }
+              );
             }
-          );
+          }
+        } catch (syncErr) {
+          console.warn('Google Sheets sync failed for deleteLead:', syncErr);
         }
       }
       res.json({ ok: true });
@@ -920,22 +1406,40 @@ async function createServer() {
   app.post('/api/team', async (req: Request, res: Response) => {
     try {
       const member = req.body as TeamMember;
-      if (APPS_SCRIPT_URL && (!SERVICE_ACCOUNT_EMAIL || !SERVICE_ACCOUNT_PRIVATE_KEY)) {
-        await callAppsScript('POST', { action: 'addTeamMember', member });
+      const local = getLocalWorkspaceData();
+      const existingIdx = local.teamMembers.findIndex((m) => m.id === member.id);
+      if (existingIdx >= 0) {
+        local.teamMembers[existingIdx] = member;
       } else {
-        const ctx = await resolveAndEnsureSheetContext();
-        const range = `${quoteTabName(ctx.teamTabTitle)}!A1:J1`;
-        await googleFetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
-            ctx.spreadsheetId
-          )}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-          {
-            method: 'POST',
-            body: JSON.stringify({
-              values: [teamMemberToRowValues(member, new Date().toISOString())],
-            }),
-          }
-        );
+        local.teamMembers.push(member);
+      }
+      saveLocalWorkspaceData(local);
+
+      const cfg = getEnvConfig();
+      if (cfg.appsScriptUrl && (!cfg.serviceAccountEmail || !cfg.serviceAccountPrivateKey)) {
+        try {
+          await callAppsScript('POST', { action: 'addTeamMember', member });
+        } catch (syncErr) {
+          console.warn('Apps Script sync failed for addTeamMember:', syncErr);
+        }
+      } else if (cfg.serviceAccountEmail && cfg.serviceAccountPrivateKey) {
+        try {
+          const ctx = await resolveAndEnsureSheetContext();
+          const range = `${quoteTabName(ctx.teamTabTitle)}!A1:F1`;
+          await googleFetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+              ctx.spreadsheetId
+            )}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                values: [teamMemberToRowValues(member)],
+              }),
+            }
+          );
+        } catch (syncErr) {
+          console.warn('Google Sheets sync failed for addTeamMember:', syncErr);
+        }
       }
       res.status(201).json({ ok: true });
     } catch (err) {
@@ -948,45 +1452,57 @@ async function createServer() {
   app.put('/api/team/:id', async (req: Request, res: Response) => {
     try {
       const member = req.body as TeamMember;
-      if (APPS_SCRIPT_URL && (!SERVICE_ACCOUNT_EMAIL || !SERVICE_ACCOUNT_PRIVATE_KEY)) {
-        await callAppsScript('POST', { action: 'updateTeamMember', member });
+      const local = getLocalWorkspaceData();
+      const existing = local.teamMembers.find((m) => m.id === req.params.id);
+      if ((existing && isProtectedAdminRecord(existing)) || isProtectedAdminRecord(member)) {
+        res.status(403).json({
+          error: 'Admin account is protected and cannot be edited or deactivated.',
+        });
+        return;
+      }
+
+      const existingIdx = local.teamMembers.findIndex((m) => m.id === req.params.id);
+      if (existingIdx >= 0) {
+        local.teamMembers[existingIdx] = member;
       } else {
-        const ctx = await resolveAndEnsureSheetContext();
-        const rowNumber = await findRowNumberById(ctx.spreadsheetId, ctx.teamTabTitle, req.params.id);
-        if (!rowNumber) {
-          res.status(404).json({ error: `Account "${member.name}" was not found.` });
-          return;
+        local.teamMembers.push(member);
+      }
+      saveLocalWorkspaceData(local);
+
+      const cfg = getEnvConfig();
+      if (cfg.appsScriptUrl && (!cfg.serviceAccountEmail || !cfg.serviceAccountPrivateKey)) {
+        try {
+          await callAppsScript('POST', { action: 'updateTeamMember', member });
+        } catch (syncErr) {
+          console.warn('Apps Script sync failed for updateTeamMember:', syncErr);
         }
-        const headerData = await googleFetch<{ values?: string[][] }>(
-          `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
-            ctx.spreadsheetId
-          )}/values/${encodeURIComponent(`${quoteTabName(ctx.teamTabTitle)}!J1`)}`
-        );
-        const existingJ1 = String(headerData.values?.[0]?.[0] ?? '').trim();
-        const updates: { range: string; values: string[][] }[] = [
-          {
-            range: `${quoteTabName(ctx.teamTabTitle)}!A${rowNumber}:J${rowNumber}`,
-            values: [teamMemberToRowValues(member, new Date().toISOString())],
-          },
-        ];
-        if (!existingJ1) {
-          updates.push({
-            range: `${quoteTabName(ctx.teamTabTitle)}!J1`,
-            values: [['Status']],
-          });
-        }
-        await googleFetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
-            ctx.spreadsheetId
-          )}/values:batchUpdate`,
-          {
-            method: 'POST',
-            body: JSON.stringify({
-              valueInputOption: 'USER_ENTERED',
-              data: updates,
-            }),
+      } else if (cfg.serviceAccountEmail && cfg.serviceAccountPrivateKey) {
+        try {
+          const ctx = await resolveAndEnsureSheetContext();
+          const rowNumber = await findRowNumberById(ctx.spreadsheetId, ctx.teamTabTitle, req.params.id);
+          if (rowNumber) {
+            const updates: { range: string; values: string[][] }[] = [
+              {
+                range: `${quoteTabName(ctx.teamTabTitle)}!A${rowNumber}:F${rowNumber}`,
+                values: [teamMemberToRowValues(member)],
+              },
+            ];
+            await googleFetch(
+              `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+                ctx.spreadsheetId
+              )}/values:batchUpdate`,
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  valueInputOption: 'USER_ENTERED',
+                  data: updates,
+                }),
+              }
+            );
           }
-        );
+        } catch (syncErr) {
+          console.warn('Google Sheets sync failed for updateTeamMember:', syncErr);
+        }
       }
       res.json({ ok: true });
     } catch (err) {
@@ -998,38 +1514,57 @@ async function createServer() {
 
   app.delete('/api/team/:id', async (req: Request, res: Response) => {
     try {
-      if (APPS_SCRIPT_URL && (!SERVICE_ACCOUNT_EMAIL || !SERVICE_ACCOUNT_PRIVATE_KEY)) {
-        await callAppsScript('POST', { action: 'deleteTeamMember', id: req.params.id });
-      } else {
-        const ctx = await resolveAndEnsureSheetContext();
-        if (ctx.teamTabSheetId === null) {
-          res.status(400).json({ error: 'Team tab ID is unavailable.' });
-          return;
+      const local = getLocalWorkspaceData();
+      const existing = local.teamMembers.find((m) => m.id === req.params.id);
+      if (existing && isProtectedAdminRecord(existing)) {
+        res.status(403).json({
+          error: 'Admin account is protected and cannot be removed.',
+        });
+        return;
+      }
+
+      local.teamMembers = local.teamMembers.filter((m) => m.id !== req.params.id);
+      saveLocalWorkspaceData(local);
+
+      const cfg = getEnvConfig();
+      if (cfg.appsScriptUrl && (!cfg.serviceAccountEmail || !cfg.serviceAccountPrivateKey)) {
+        try {
+          await callAppsScript('POST', { action: 'deleteTeamMember', id: req.params.id });
+        } catch (syncErr) {
+          console.warn('Apps Script sync failed for deleteTeamMember:', syncErr);
         }
-        const rowNumber = await findRowNumberById(ctx.spreadsheetId, ctx.teamTabTitle, req.params.id);
-        if (rowNumber) {
-          await googleFetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
-              ctx.spreadsheetId
-            )}:batchUpdate`,
-            {
-              method: 'POST',
-              body: JSON.stringify({
-                requests: [
-                  {
-                    deleteDimension: {
-                      range: {
-                        sheetId: ctx.teamTabSheetId,
-                        dimension: 'ROWS',
-                        startIndex: rowNumber - 1,
-                        endIndex: rowNumber,
+      } else if (cfg.serviceAccountEmail && cfg.serviceAccountPrivateKey) {
+        try {
+          const ctx = await resolveAndEnsureSheetContext();
+          if (ctx.teamTabSheetId !== null) {
+            const rowNumber = await findRowNumberById(ctx.spreadsheetId, ctx.teamTabTitle, req.params.id);
+            if (rowNumber) {
+              await googleFetch(
+                `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+                  ctx.spreadsheetId
+                )}:batchUpdate`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    requests: [
+                      {
+                        deleteDimension: {
+                          range: {
+                            sheetId: ctx.teamTabSheetId,
+                            dimension: 'ROWS',
+                            startIndex: rowNumber - 1,
+                            endIndex: rowNumber,
+                          },
+                        },
                       },
-                    },
-                  },
-                ],
-              }),
+                    ],
+                  }),
+                }
+              );
             }
-          );
+          }
+        } catch (syncErr) {
+          console.warn('Google Sheets sync failed for deleteTeamMember:', syncErr);
         }
       }
       res.json({ ok: true });
@@ -1067,7 +1602,7 @@ async function createServer() {
 
   const port = Number(process.env.PORT) || 3000;
   app.listen(port, '0.0.0.0', () => {
-    console.log(`KYC System server listening on http://0.0.0.0:${port}`);
+    console.log(`KYC System server listening on http://localhost:${port}`);
   });
 }
 

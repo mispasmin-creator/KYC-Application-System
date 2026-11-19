@@ -1,4 +1,5 @@
-import { KycLead, TeamMember } from '../types/kyc';
+import { KycLead, MasterSalesPerson, TeamMember } from '../types/kyc';
+import { GstinLookupResult } from '../utils/gstinLookupUtils';
 
 export type ApiErrorKind = 'cookie_blocked' | 'server_warming' | 'static_host' | 'server_error';
 
@@ -65,12 +66,12 @@ async function apiRequest<T>(url: string, init?: RequestInit, attempt = 0): Prom
   }
 
   if (isWarmupHtml(rawText)) {
-    if (attempt < 5) {
-      await sleep(1500);
+    if (attempt < 8) {
+      await sleep(2000);
       return apiRequest<T>(url, init, attempt + 1);
     }
     throw new WorkspaceApiError(
-      'Server is still starting up. Please wait a few seconds and click Sign In again.',
+      'Server is still starting up. Please wait a few seconds and refresh the page.',
       'server_warming'
     );
   }
@@ -123,15 +124,18 @@ export async function loginWithCredentials(
 export async function fetchWorkspaceData(): Promise<{
   leads: KycLead[];
   teamMembers: TeamMember[];
+  masterTeam: MasterSalesPerson[];
 }> {
   const data = await apiRequest<{
     leads?: KycLead[];
     teamMembers?: TeamMember[];
+    masterTeam?: MasterSalesPerson[];
   }>('/api/workspace');
 
   return {
     leads: Array.isArray(data.leads) ? data.leads : [],
     teamMembers: Array.isArray(data.teamMembers) ? data.teamMembers : [],
+    masterTeam: Array.isArray(data.masterTeam) ? data.masterTeam : [],
   };
 }
 
@@ -173,4 +177,8 @@ export async function deleteTeamMember(id: string): Promise<void> {
   await apiRequest(`/api/team/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
+}
+
+export async function lookupGstinDetails(gstin: string): Promise<GstinLookupResult> {
+  return apiRequest<GstinLookupResult>(`/api/gstin/${encodeURIComponent(gstin)}`);
 }

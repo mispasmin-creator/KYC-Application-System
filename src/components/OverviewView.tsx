@@ -5,7 +5,6 @@ import {
   ClipboardList,
   FileSpreadsheet,
   KeyRound,
-  LogOut,
   MapPin,
   Plus,
   Store,
@@ -13,26 +12,27 @@ import {
   Users,
 } from 'lucide-react';
 import { EntityType, KycLead, NavSection, TeamMember } from '../types/kyc';
+import { formatCategoryBadge } from '../utils/teamAccessUtils';
 import { formatDateTime, formatShortDate } from '../utils/validators';
 
 interface OverviewViewProps {
   leads: KycLead[];
   activeUser: TeamMember;
+  allowedPages?: NavSection[];
   onNavigate: (nav: NavSection, entityFilter?: 'all' | EntityType) => void;
   onOpenLead: (lead: KycLead) => void;
   onCreateNew: () => void;
   onExportCsv: () => void;
-  onSignOut: () => void;
 }
 
 export function OverviewView({
   leads,
   activeUser,
+  allowedPages = ['overview', 'directory', 'leaderboard', 'loginAccess'],
   onNavigate,
   onOpenLead,
   onCreateNew,
   onExportCsv,
-  onSignOut,
 }: OverviewViewProps) {
   const totalCompanies = leads.length;
   const customerLeads = leads.filter((l) => l.entityType === 'customer');
@@ -56,8 +56,6 @@ export function OverviewView({
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, 4);
 
-  const customerPct = totalCompanies > 0 ? (customerLeads.length / totalCompanies) * 100 : 0;
-  const vendorPct = totalCompanies > 0 ? (vendorLeads.length / totalCompanies) * 100 : 0;
 
   return (
     <div className="space-y-6">
@@ -68,25 +66,20 @@ export function OverviewView({
           <div className="mobile-hero-emerald rounded-3xl p-5 pb-11 text-white shadow-[0_18px_38px_-14px_rgba(13,79,60,0.45)]">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15 border border-white/20 shrink-0">
-                  <Building2 className="h-5 w-5 text-[#A3F046]" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/95 border border-white/80 p-1.5 shadow-xs shrink-0">
+                  <img
+                    src="/assets/aistudio/logo__1__12f0c258.png"
+                    alt="KYC System Logo"
+                    className="h-full w-full object-contain"
+                  />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[11px] text-emerald-100/80">Welcome back</div>
+                  <div className="text-[11px] text-emerald-100/80">KYC System</div>
                   <div className="truncate text-sm font-semibold text-white">
                     {activeUser.name}
                   </div>
                 </div>
               </div>
-
-              <button
-                type="button"
-                onClick={onSignOut}
-                aria-label="Sign out"
-                className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 border border-white/15 text-white hover:bg-white/20 active:scale-95 transition-all shrink-0"
-              >
-                <LogOut className="h-4 w-4" />
-              </button>
             </div>
 
             <div className="mt-5">
@@ -180,31 +173,35 @@ export function OverviewView({
                 </span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => onNavigate('leaderboard')}
-                className="flex flex-col items-center justify-center gap-1.5 min-h-[44px] active:scale-95 transition-transform"
-              >
-                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F6EE] text-[#0D4F3C]">
-                  <UserCheck className="h-5 w-5" />
-                </span>
-                <span className="text-[11px] font-medium text-slate-700 leading-tight">
-                  Team
-                </span>
-              </button>
+              {allowedPages.includes('leaderboard') && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('leaderboard')}
+                  className="flex flex-col items-center justify-center gap-1.5 min-h-[44px] active:scale-95 transition-transform"
+                >
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F6EE] text-[#0D4F3C]">
+                    <UserCheck className="h-5 w-5" />
+                  </span>
+                  <span className="text-[11px] font-medium text-slate-700 leading-tight">
+                    Team
+                  </span>
+                </button>
+              )}
 
-              <button
-                type="button"
-                onClick={() => onNavigate('loginAccess')}
-                className="flex flex-col items-center justify-center gap-1.5 min-h-[44px] active:scale-95 transition-transform"
-              >
-                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F6EE] text-[#0D4F3C]">
-                  <KeyRound className="h-5 w-5" />
-                </span>
-                <span className="text-[11px] font-medium text-slate-700 leading-tight">
-                  Access
-                </span>
-              </button>
+              {allowedPages.includes('loginAccess') && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('loginAccess')}
+                  className="flex flex-col items-center justify-center gap-1.5 min-h-[44px] active:scale-95 transition-transform"
+                >
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#E8F6EE] text-[#0D4F3C]">
+                    <KeyRound className="h-5 w-5" />
+                  </span>
+                  <span className="text-[11px] font-medium text-slate-700 leading-tight">
+                    Access
+                  </span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -339,10 +336,11 @@ export function OverviewView({
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-xs font-semibold text-[#0D4F3C]">
-              Welcome back, {activeUser.name} · {activeUser.salespersonCategory}
+              Welcome back, {activeUser.name} ·{' '}
+              {formatCategoryBadge(activeUser.salespersonCategory, activeUser.name)}
             </p>
             <h1 className="mt-1 font-display text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
-              Company KYC Directory Overview
+              Company KYC Directory Dashboard
             </h1>
           </div>
           <div className="flex items-center gap-3">
@@ -435,54 +433,6 @@ export function OverviewView({
           </div>
         </div>
 
-        {/* Entity Distribution Summary Bar */}
-        <section className="glass-surface rounded-2xl p-6">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-slate-200/70">
-            <h2 className="font-display text-base font-semibold text-slate-900">
-              KYC Directory Breakdown
-            </h2>
-            <button
-              type="button"
-              onClick={() => onNavigate('directory')}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0D4F3C] hover:text-emerald-950 whitespace-nowrap shrink-0"
-            >
-              <span>Open Full Directory</span>
-              <ArrowRight className="h-3.5 w-3.5" />
-            </button>
-          </div>
-
-          <div className="mt-4 rounded-xl border border-white/75 bg-white/45 p-3.5">
-            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200/70 flex">
-              <div
-                style={{ width: `${customerPct}%` }}
-                className="h-full bg-[#0D4F3C] transition-all duration-300"
-                title={`Customers: ${customerLeads.length}`}
-              />
-              <div
-                style={{ width: `${vendorPct}%` }}
-                className="h-full bg-amber-400 transition-all duration-300"
-                title={`Vendors: ${vendorLeads.length}`}
-              />
-            </div>
-            <div className="mt-2.5 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-600 tabular-nums">
-              <span>
-                Total Saved: <strong className="font-mono text-slate-900">{totalCompanies}</strong>
-              </span>
-              <span>
-                Customers:{' '}
-                <strong className="font-mono text-[#0D4F3C]">{customerLeads.length}</strong>
-              </span>
-              <span>
-                Vendors:{' '}
-                <strong className="font-mono text-amber-700">{vendorLeads.length}</strong>
-              </span>
-              <span>
-                Total Branches:{' '}
-                <strong className="font-mono text-slate-800">{totalBranches}</strong>
-              </span>
-            </div>
-          </div>
-        </section>
 
         {/* Two-column split: Saved Companies & Recent Activity */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">

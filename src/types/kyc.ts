@@ -2,19 +2,37 @@ export type EntityType = 'customer' | 'vendor';
 
 export type UserRole = 'salesperson' | 'manager';
 
-export type SalespersonCategory = 'GM' | 'MM' | 'TSE';
+export type SalespersonCategory = 'ADMIN' | 'GM' | 'MM' | 'TSE';
 
 export const SALESPERSON_CATEGORIES: {
   value: SalespersonCategory;
   label: string;
   fullTitle: string;
 }[] = [
+  { value: 'ADMIN', label: 'Admin', fullTitle: 'Full System Access' },
   { value: 'GM', label: 'GM', fullTitle: 'General Manager' },
   { value: 'MM', label: 'MM', fullTitle: 'Marketing Manager' },
   { value: 'TSE', label: 'TSE', fullTitle: 'Territory Sales Executive' },
 ];
 
 export type NavSection = 'overview' | 'directory' | 'leaderboard' | 'loginAccess';
+
+export const PAGE_ACCESS_OPTIONS: {
+  id: NavSection;
+  label: string;
+}[] = [
+  { id: 'overview', label: 'Dashboard' },
+  { id: 'directory', label: 'KYC Directory' },
+  { id: 'leaderboard', label: 'Sales Team' },
+  { id: 'loginAccess', label: 'Login Access' },
+];
+
+export const DEFAULT_ALLOWED_PAGES: NavSection[] = [
+  'overview',
+  'directory',
+  'leaderboard',
+  'loginAccess',
+];
 
 export type AccountStatus = 'active' | 'inactive';
 
@@ -76,5 +94,14 @@ export interface TeamMember {
   territory: string;
   password?: string;
   status?: AccountStatus;
+  allowedPages?: NavSection[];
   createdAt?: string;
 }
+
+export interface MasterSalesPerson {
+  id: string;
+  name: string;
+  firm: string;
+  category: SalespersonCategory;
+}
+

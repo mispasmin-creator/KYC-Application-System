@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Menu, Plus, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, LogOut, Menu, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmActionModal } from './components/ConfirmActionModal';
 import { GlobalSearchBar } from './components/GlobalSearchBar';
@@ -7,10 +7,10 @@ import { KycDossierDrawer } from './components/KycDossierDrawer';
 import { KycFormModal } from './components/KycFormModal';
 import { LeaderboardView } from './components/LeaderboardView';
 import { LoginAccessView } from './components/LoginAccessView';
-import { LoginView } from './components/LoginView';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { OverviewView } from './components/OverviewView';
 import { Sidebar } from './components/Sidebar';
+import { SignInView } from './components/SignInView';
 import {
   createKycLead,
   createTeamMember,
@@ -20,12 +20,21 @@ import {
   updateKycLead,
   updateTeamMember,
 } from './services/workspaceApi';
-import { AccountStatus, EntityType, KycLead, NavSection, TeamMember } from './types/kyc';
+import {
+  AccountStatus,
+  EntityType,
+  KycLead,
+  MasterSalesPerson,
+  NavSection,
+  PAGE_ACCESS_OPTIONS,
+  TeamMember,
+} from './types/kyc';
 import { exportLeadsToCsv } from './utils/exportUtils';
 import { filterLeadsByQuery } from './utils/searchUtils';
+import { getAllowedPagesForUser, isProtectedAdminMember } from './utils/teamAccessUtils';
 
 const NAV_TITLES: Record<NavSection, string> = {
-  overview: 'Overview',
+  overview: 'Dashboard',
   directory: 'KYC Directory',
   leaderboard: 'Sales Team',
   loginAccess: 'Login Access',
@@ -57,11 +66,39 @@ function generateNextKycId(existingLeads: KycLead[]): string {
   return `KYC-${year}-${String(maxSeq + 1).padStart(4, '0')}`;
 }
 
+const SESSION_STORAGE_KEY = 'kyc_active_user_v1';
+
+function readStoredSession(): TeamMember | null {
+  try {
+    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as TeamMember;
+    if (parsed && typeof parsed.id === 'string' && typeof parsed.name === 'string') {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredSession(user: TeamMember | null): void {
+  try {
+    if (user) {
+      window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+    } else {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage quota / privacy mode errors
+  }
+}
+
 export function App() {
+  const [currentUser, setCurrentUser] = useState<TeamMember | null>(() => readStoredSession());
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [masterTeam, setMasterTeam] = useState<MasterSalesPerson[]>([]);
   const [leads, setLeads] = useState<KycLead[]>([]);
-  const [loggedInUser, setLoggedInUser] = useState<TeamMember | null>(null);
-  const [authError, setAuthError] = useState('');
   const [workspaceError, setWorkspaceError] = useState('');
 
   const [activeNav, setActiveNav] = useState<NavSection>('overview');
@@ -79,15 +116,15 @@ export function App() {
 
   const isMutatingRef = useRef(false);
   const selectedLeadIdRef = useRef<string | null>(null);
-  const loggedInUserIdRef = useRef<string | null>(null);
+  const currentUserRef = useRef<TeamMember | null>(currentUser);
 
   useEffect(() => {
     selectedLeadIdRef.current = selectedLeadId;
   }, [selectedLeadId]);
 
   useEffect(() => {
-    loggedInUserIdRef.current = loggedInUser?.id ?? null;
-  }, [loggedInUser]);
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
 
   useEffect(() => {
     if (!toastMessage) return;
@@ -99,14 +136,60 @@ export function App() {
     setToastMessage(msg);
   }, []);
 
+  const handleLogout = useCallback(
+    (reason?: string) => {
+      saveStoredSession(null);
+      setCurrentUser(null);
+      setSelectedLeadId(null);
+      setIsFormOpen(false);
+      setEditingLead(null);
+      setConfirmState(null);
+      setMobileMenuOpen(false);
+      setGlobalSearchQuery('');
+      setActiveNav('overview');
+      setWorkspaceError('');
+      notify(reason ?? 'Logged out successfully.');
+    },
+    [notify]
+  );
+
+  const handleSignInSuccess = useCallback(
+    (user: TeamMember) => {
+      saveStoredSession(user);
+      setCurrentUser(user);
+      const allowed = getAllowedPagesForUser(user);
+      setActiveNav(allowed[0] ?? 'overview');
+      setWorkspaceError('');
+      notify(`Signed in as ${user.name}.`);
+    },
+    [notify]
+  );
+
   const syncNow = useCallback(async () => {
-    if (!loggedInUserIdRef.current) return;
+    const signedUser = currentUserRef.current;
+    if (!signedUser) return;
+
     try {
       const data = await fetchWorkspaceData();
       setLeads(data.leads);
       setTeamMembers(data.teamMembers);
-      setAuthError('');
+      setMasterTeam(data.masterTeam);
       setWorkspaceError('');
+
+      if (signedUser.id !== 'admin-root' && data.teamMembers.length > 0) {
+        const latestProfile = data.teamMembers.find(
+          (m) =>
+            m.id === signedUser.id ||
+            m.name.trim().toLowerCase() === signedUser.name.trim().toLowerCase()
+        );
+        if (!latestProfile || latestProfile.status === 'inactive') {
+          handleLogout('Your account session has ended or been deactivated.');
+          return;
+        }
+        const { password: _pwd, ...safeLatest } = latestProfile;
+        saveStoredSession(safeLatest);
+        setCurrentUser(safeLatest);
+      }
 
       if (
         selectedLeadIdRef.current &&
@@ -115,33 +198,14 @@ export function App() {
         setSelectedLeadId(null);
         notify('Record removed.');
       }
-
-      if (loggedInUserIdRef.current !== 'admin-root') {
-        const currentMember = data.teamMembers.find(
-          (m) => m.id === loggedInUserIdRef.current
-        );
-        if (!currentMember) {
-          setLoggedInUser(null);
-          setSelectedLeadId(null);
-          setIsFormOpen(false);
-          setAuthError('Your account was removed.');
-        } else if (currentMember.status === 'inactive') {
-          setLoggedInUser(null);
-          setSelectedLeadId(null);
-          setIsFormOpen(false);
-          setAuthError('Your account has been deactivated.');
-        } else {
-          setLoggedInUser(currentMember);
-        }
-      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unable to refresh workspace data.';
       setWorkspaceError(msg);
     }
-  }, [notify]);
+  }, [handleLogout, notify]);
 
   useEffect(() => {
-    if (!loggedInUser) return;
+    if (!currentUser) return;
 
     void syncNow();
 
@@ -165,7 +229,7 @@ export function App() {
       window.removeEventListener('focus', handleResumeSync);
       document.removeEventListener('visibilitychange', handleResumeSync);
     };
-  }, [loggedInUser?.id, syncNow]);
+  }, [currentUser?.id, syncNow]);
 
   const executeConfirmedAction = async () => {
     if (!confirmState) return;
@@ -184,10 +248,18 @@ export function App() {
     }
   };
 
-  const activeUser = useMemo(() => {
-    if (!loggedInUser) return null;
-    return teamMembers.find((m) => m.id === loggedInUser.id) ?? loggedInUser;
-  }, [teamMembers, loggedInUser]);
+  const allowedPages = useMemo(
+    () => (currentUser ? getAllowedPagesForUser(currentUser) : []),
+    [currentUser]
+  );
+
+  useEffect(() => {
+    if (currentUser && allowedPages.length > 0 && !allowedPages.includes(activeNav)) {
+      setActiveNav(allowedPages[0]);
+    }
+  }, [activeNav, allowedPages, currentUser]);
+
+  const activeUser = currentUser;
 
   const selectedLead = useMemo(
     () => leads.find((l) => l.id === selectedLeadId) ?? null,
@@ -316,8 +388,16 @@ export function App() {
       title: 'Save Team Account',
       description: `Create account for "${newMember.name}" (${newMember.salespersonCategory})?`,
       details: [
-        `Email: ${newMember.email}`,
-        `Mobile: ${newMember.phone}`,
+        ...(newMember.email ? [`Email: ${newMember.email}`] : []),
+        ...(newMember.phone ? [`Mobile: ${newMember.phone}`] : []),
+        ...(newMember.territory ? [`Territory: ${newMember.territory}`] : []),
+        ...(newMember.allowedPages && newMember.allowedPages.length > 0
+          ? [
+              `Page Access: ${newMember.allowedPages
+                .map((id) => PAGE_ACCESS_OPTIONS.find((opt) => opt.id === id)?.label ?? id)
+                .join(', ')}`,
+            ]
+          : []),
         `Status: ${newMember.status === 'inactive' ? 'Deactivated' : 'Active'}`,
       ],
       confirmLabel: 'Save Account',
@@ -330,12 +410,26 @@ export function App() {
   };
 
   const handleUpdateTeamMember = (updated: TeamMember) => {
+    const existing = teamMembers.find((m) => m.id === updated.id);
+    if (isProtectedAdminMember(updated) || (existing && isProtectedAdminMember(existing))) {
+      notify('Admin account is protected and cannot be edited.');
+      return;
+    }
+
     setConfirmState({
       title: 'Update User Account',
       description: `Save updated profile and credentials for "${updated.name}"?`,
       details: [
         `Name: ${updated.name}`,
-        `Email: ${updated.email}`,
+        ...(updated.email ? [`Email: ${updated.email}`] : []),
+        ...(updated.territory ? [`Territory: ${updated.territory}`] : []),
+        ...(updated.allowedPages && updated.allowedPages.length > 0
+          ? [
+              `Page Access: ${updated.allowedPages
+                .map((id) => PAGE_ACCESS_OPTIONS.find((opt) => opt.id === id)?.label ?? id)
+                .join(', ')}`,
+            ]
+          : []),
         `Status: ${updated.status === 'inactive' ? 'Deactivated' : 'Active'}`,
       ],
       confirmLabel: 'Save Changes',
@@ -348,6 +442,11 @@ export function App() {
   };
 
   const handleToggleTeamMemberStatus = (member: TeamMember, nextStatus: AccountStatus) => {
+    if (isProtectedAdminMember(member)) {
+      notify('Admin account is protected and cannot be deactivated.');
+      return;
+    }
+
     const updated: TeamMember = { ...member, status: nextStatus };
     const isDeactivating = nextStatus === 'inactive';
 
@@ -357,7 +456,8 @@ export function App() {
         ? `Deactivate "${member.name}"? They will lose login access until reactivated.`
         : `Reactivate "${member.name}" so they can sign in to the workspace again?`,
       details: [
-        `Email: ${member.email}`,
+        `Name: ${member.name}`,
+        ...(member.email ? [`Email: ${member.email}`] : []),
         `New Status: ${isDeactivating ? 'Deactivated' : 'Active'}`,
       ],
       confirmLabel: isDeactivating ? 'Deactivate Account' : 'Activate Account',
@@ -371,10 +471,18 @@ export function App() {
   };
 
   const handleDeleteTeamMember = (member: TeamMember) => {
+    if (isProtectedAdminMember(member)) {
+      notify('Admin account is protected and cannot be removed.');
+      return;
+    }
+
     setConfirmState({
       title: 'Remove Team Member',
       description: `Remove "${member.name}" (${member.salespersonCategory}) from your team? They will no longer be able to log in.`,
-      details: [`Email: ${member.email}`],
+      details: [
+        `Name: ${member.name}`,
+        ...(member.email ? [`Email: ${member.email}`] : []),
+      ],
       confirmLabel: 'Remove Member',
       variant: 'danger',
       action: async () => {
@@ -385,30 +493,7 @@ export function App() {
     });
   };
 
-  const handleLoginSuccess = (member: TeamMember) => {
-    if (!member || !member.id) {
-      setAuthError('Unable to sign in. Invalid account response.');
-      return;
-    }
-    loggedInUserIdRef.current = member.id;
-    setLoggedInUser(member);
-    setAuthError('');
-    setActiveNav('overview');
-    setDirectoryEntityFilter('all');
-    notify(`Signed in as ${member.name}.`);
-  };
 
-  const handleSignOut = () => {
-    loggedInUserIdRef.current = null;
-    setLoggedInUser(null);
-    setWorkspaceError('');
-    setLeads([]);
-    setTeamMembers([]);
-    setSelectedLeadId(null);
-    setIsFormOpen(false);
-    setEditingLead(null);
-    setMobileMenuOpen(false);
-  };
 
   const handleSelectNav = (nav: NavSection, entityFilter?: 'all' | EntityType) => {
     setActiveNav(nav);
@@ -427,20 +512,35 @@ export function App() {
     setIsFormOpen(true);
   };
 
+  if (!activeUser) {
+    return (
+      <>
+        <SignInView onAuthenticated={handleSignInSuccess} />
+        {toastMessage && (
+          <div
+            role="status"
+            className="no-print fixed bottom-5 left-4 right-4 sm:left-auto sm:right-5 z-[80] flex items-center gap-2 rounded-xl border border-emerald-600/30 bg-[#0D4F3C] px-4 py-3 text-xs font-medium text-white shadow-lg"
+          >
+            <CheckCircle2 className="h-4 w-4 text-[#A3F046] shrink-0" />
+            <span>{toastMessage}</span>
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
     <>
-      {!activeUser ? (
-        <LoginView authError={authError} onLoginSuccess={handleLoginSuccess} />
-      ) : (
-        <div className="min-h-[100dvh] flex text-slate-900">
-          <Sidebar
-            activeNav={activeNav}
-            onSelectNav={(nav) => handleSelectNav(nav)}
-            activeUser={activeUser}
-            onSignOut={handleSignOut}
-            mobileOpen={mobileMenuOpen}
-            onCloseMobile={() => setMobileMenuOpen(false)}
-          />
+      <div className="min-h-[100dvh] flex text-slate-900">
+        <Sidebar
+          activeNav={activeNav}
+          allowedPages={allowedPages}
+          onSelectNav={(nav) => handleSelectNav(nav)}
+          activeUser={activeUser}
+          mobileOpen={mobileMenuOpen}
+          onCloseMobile={() => setMobileMenuOpen(false)}
+          onLogout={() => handleLogout()}
+        />
 
           <div className={`flex-1 flex flex-col min-w-0 ${selectedLead ? 'print:hidden' : ''}`}>
             <header className="no-print sticky top-0 z-30 flex h-14 lg:h-16 items-center justify-between gap-2.5 sm:gap-6 border-b border-white/65 bg-white/65 backdrop-blur-xl px-3 sm:px-6 lg:px-8">
@@ -453,6 +553,13 @@ export function App() {
                 >
                   <Menu className="h-5 w-5" />
                 </button>
+                <span className="lg:hidden flex h-8 w-8 items-center justify-center rounded-lg bg-white border border-slate-200/80 p-1 shadow-2xs shrink-0">
+                  <img
+                    src="/assets/aistudio/logo__1__12f0c258.png"
+                    alt="KYC System Logo"
+                    className="h-full w-full object-contain"
+                  />
+                </span>
                 <span className="hidden sm:inline text-sm font-semibold text-slate-900 whitespace-nowrap">
                   {NAV_TITLES[activeNav]}
                 </span>
@@ -473,6 +580,16 @@ export function App() {
                 >
                   <Plus className="h-4 w-4" />
                   <span>New KYC Entry</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleLogout()}
+                  aria-label="Logout"
+                  title="Logout"
+                  className="min-h-[40px] inline-flex items-center gap-1.5 rounded-xl border border-rose-200/90 bg-white/90 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 transition-colors whitespace-nowrap shrink-0 shadow-2xs"
+                >
+                  <LogOut className="h-4 w-4" />
+                  <span className="hidden sm:inline">Logout</span>
                 </button>
               </div>
             </header>
@@ -508,10 +625,11 @@ export function App() {
                 </div>
               )}
 
-              {activeNav === 'overview' && (
+              {activeNav === 'overview' && allowedPages.includes('overview') && (
                 <OverviewView
                   leads={globallyFilteredLeads}
                   activeUser={activeUser}
+                  allowedPages={allowedPages}
                   onNavigate={handleSelectNav}
                   onOpenLead={(lead) => setSelectedLeadId(lead.id)}
                   onCreateNew={openNewForm}
@@ -519,11 +637,10 @@ export function App() {
                     exportLeadsToCsv(globallyFilteredLeads);
                     notify(`Exported ${globallyFilteredLeads.length} KYC records to CSV.`);
                   }}
-                  onSignOut={handleSignOut}
                 />
               )}
 
-              {activeNav === 'directory' && (
+              {activeNav === 'directory' && allowedPages.includes('directory') && (
                 <KycDirectoryView
                   leads={globallyFilteredLeads}
                   totalLeadsCount={leads.length}
@@ -540,7 +657,7 @@ export function App() {
                 />
               )}
 
-              {activeNav === 'leaderboard' && (
+              {activeNav === 'leaderboard' && allowedPages.includes('leaderboard') && (
                 <LeaderboardView
                   leads={globallyFilteredLeads}
                   teamMembers={teamMembers}
@@ -551,7 +668,7 @@ export function App() {
                 />
               )}
 
-              {activeNav === 'loginAccess' && (
+              {activeNav === 'loginAccess' && allowedPages.includes('loginAccess') && (
                 <LoginAccessView
                   teamMembers={teamMembers}
                   activeUser={activeUser}
@@ -565,6 +682,7 @@ export function App() {
 
           <MobileBottomNav
             activeNav={activeNav}
+            allowedPages={allowedPages}
             onSelectNav={(nav) => handleSelectNav(nav)}
             onCreateNew={openNewForm}
           />
@@ -582,6 +700,7 @@ export function App() {
             editingLead={editingLead}
             activeUser={activeUser}
             teamMembers={teamMembers}
+            masterTeam={masterTeam}
             onClose={() => {
               setIsFormOpen(false);
               setEditingLead(null);
@@ -589,7 +708,6 @@ export function App() {
             onSave={handleSaveKyc}
           />
         </div>
-      )}
 
       <ConfirmActionModal
         isOpen={Boolean(confirmState)}

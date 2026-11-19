@@ -12,23 +12,26 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { NavSection, TeamMember } from '../types/kyc';
+import { formatCategoryBadge } from '../utils/teamAccessUtils';
 
 interface SidebarProps {
   activeNav: NavSection;
+  allowedPages: NavSection[];
   onSelectNav: (nav: NavSection) => void;
   activeUser: TeamMember;
-  onSignOut: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
+  onLogout: () => void;
 }
 
 export function Sidebar({
   activeNav,
+  allowedPages,
   onSelectNav,
   activeUser,
-  onSignOut,
   mobileOpen,
   onCloseMobile,
+  onLogout,
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -36,12 +39,14 @@ export function Sidebar({
     id: NavSection;
     label: string;
     icon: typeof LayoutDashboard;
-  }[] = [
-    { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-    { id: 'directory', label: 'KYC Directory', icon: ClipboardList },
-    { id: 'leaderboard', label: 'Sales Team', icon: BarChart3 },
-    { id: 'loginAccess', label: 'Login Access', icon: KeyRound },
-  ];
+  }[] = (
+    [
+      { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
+      { id: 'directory', label: 'KYC Directory', icon: ClipboardList },
+      { id: 'leaderboard', label: 'Sales Team', icon: BarChart3 },
+      { id: 'loginAccess', label: 'Login Access', icon: KeyRound },
+    ] as const
+  ).filter((item) => allowedPages.includes(item.id));
 
   const activeInitials = activeUser.name
     .split(' ')
@@ -57,22 +62,32 @@ export function Sidebar({
       <div className="flex h-full flex-col bg-white/55 backdrop-blur-xl border-r border-white/65">
         <div
           className={`flex h-16 items-center border-b border-white/55 ${
-            collapsed ? 'justify-center px-3' : 'justify-between px-5'
+            collapsed ? 'justify-center gap-1.5 px-2' : 'justify-between px-5'
           }`}
         >
-          {!collapsed && (
-            <a
-              href="#overview"
-              onClick={(e) => {
-                e.preventDefault();
-                onSelectNav('overview');
-                onCloseMobile();
-              }}
-              className="font-display text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0"
+          <a
+            href="#overview"
+            onClick={(e) => {
+              e.preventDefault();
+              onSelectNav('overview');
+              onCloseMobile();
+            }}
+            aria-label="KYC System Home"
+            className="flex items-center gap-2.5 min-w-0 font-display text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0"
+          >
+            <span
+              className={`flex items-center justify-center rounded-lg bg-white border border-slate-200/80 shadow-2xs shrink-0 ${
+                collapsed ? 'h-7 w-7 p-0.5' : 'h-8 w-8 p-1'
+              }`}
             >
-              KYC System
-            </a>
-          )}
+              <img
+                src="/assets/aistudio/logo__1__12f0c258.png"
+                alt="KYC System Logo"
+                className="h-full w-full object-contain"
+              />
+            </span>
+            {!collapsed && <span>KYC System</span>}
+          </a>
 
           {!isMobileDrawer && (
             <button
@@ -149,17 +164,20 @@ export function Sidebar({
               <button
                 type="button"
                 onClick={() => setIsCollapsed(false)}
-                title={`${activeUser.name} (${activeUser.salespersonCategory})`}
+                title={`${activeUser.name} (${formatCategoryBadge(activeUser.salespersonCategory, activeUser.name)})`}
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/85 bg-white/85 font-display text-xs font-bold text-[#0D4F3C] hover:bg-white transition-colors"
               >
                 {activeInitials}
               </button>
               <button
                 type="button"
-                onClick={onSignOut}
-                className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-600 hover:bg-rose-50 hover:text-rose-700 transition-colors"
-                title="Sign out"
-                aria-label="Sign out"
+                onClick={() => {
+                  onCloseMobile();
+                  onLogout();
+                }}
+                aria-label="Logout"
+                title="Logout"
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200/80 bg-rose-50/80 text-rose-700 hover:bg-rose-100 transition-colors"
               >
                 <LogOut className="h-4 w-4" />
               </button>
@@ -177,21 +195,23 @@ export function Sidebar({
                     ) : (
                       <UserCheck className="h-2.5 w-2.5" />
                     )}
-                    <span>{activeUser.salespersonCategory}</span>
+                    <span>{formatCategoryBadge(activeUser.salespersonCategory, activeUser.name)}</span>
                   </span>
                 </div>
                 <div className="mt-0.5 truncate text-[11px] text-slate-500">
                   {activeUser.territory}
                 </div>
               </div>
-
               <button
                 type="button"
-                onClick={onSignOut}
-                className="flex w-full min-h-[40px] items-center justify-center gap-1.5 rounded-xl border border-rose-200/80 bg-white/80 px-3 py-2 text-xs font-medium text-rose-700 hover:bg-rose-50 transition-colors"
+                onClick={() => {
+                  onCloseMobile();
+                  onLogout();
+                }}
+                className="flex w-full min-h-[40px] items-center justify-center gap-2 rounded-xl border border-rose-200/85 bg-rose-50/80 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100/90 transition-colors"
               >
                 <LogOut className="h-3.5 w-3.5" />
-                <span>Sign out</span>
+                <span>Logout</span>
               </button>
             </>
           )}

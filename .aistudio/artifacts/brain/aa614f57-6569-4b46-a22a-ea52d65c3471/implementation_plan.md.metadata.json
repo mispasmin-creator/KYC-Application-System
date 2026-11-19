@@ -1,6 +1,0 @@
-{
-  "summary": "Implementation plan for adding a unified global header search bar with Cmd/Ctrl+K shortcut, live cross-view filtering, quick-jump lead dossier dropdown, and removal of redundant Directory search.",
-  "updatedAt": "2026-11-18T06:40:58.732049465Z",
-  "requestFeedback": true,
-  "userFacing": true
-}

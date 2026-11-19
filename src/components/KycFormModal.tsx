@@ -1,11 +1,14 @@
-import { AlertCircle, ArrowRight, CheckCircle2, Plus, Trash2, X } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle2, Loader2, Plus, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { lookupGstinDetails } from '../services/workspaceApi';
 import {
   BranchLocation,
   EntityType,
   KycLead,
+  MasterSalesPerson,
   TeamMember,
 } from '../types/kyc';
+import { buildSalesOptionsByCategory } from '../utils/masterTeamUtils';
 import {
   isValidIndianPhone,
   isValidPincode,
@@ -18,6 +21,7 @@ interface KycFormModalProps {
   editingLead: KycLead | null;
   activeUser: TeamMember;
   teamMembers: TeamMember[];
+  masterTeam: MasterSalesPerson[];
   onClose: () => void;
   onSave: (
     payload: Omit<KycLead, 'id' | 'createdAt' | 'updatedAt' | 'activities'>,
@@ -45,10 +49,12 @@ export function KycFormModal({
   editingLead,
   activeUser,
   teamMembers,
+  masterTeam,
   onClose,
   onSave,
 }: KycFormModalProps) {
   const formRef = useRef<HTMLFormElement>(null);
+  const lastInitSessionRef = useRef<string | null>(null);
 
   const [gmId, setGmId] = useState('');
   const [gmCustomName, setGmCustomName] = useState('');
@@ -77,29 +83,41 @@ export function KycFormModal({
   const [contactEmail, setContactEmail] = useState('');
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [gstLookupState, setGstLookupState] = useState<
+    'idle' | 'loading' | 'filled' | 'not_configured' | 'error'
+  >('idle');
+  const [gstLookupMessage, setGstLookupMessage] = useState('');
+  const lastLookedUpGstinRef = useRef<string>('');
 
-  const membersByCategory = useMemo(() => {
-    return {
-      GM: teamMembers.filter((m) => m.salespersonCategory === 'GM'),
-      MM: teamMembers.filter((m) => m.salespersonCategory === 'MM'),
-      TSE: teamMembers.filter((m) => m.salespersonCategory === 'TSE'),
-    };
-  }, [teamMembers]);
+  const membersByCategory = useMemo(
+    () => buildSalesOptionsByCategory(masterTeam, teamMembers),
+    [masterTeam, teamMembers]
+  );
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      lastInitSessionRef.current = null;
+      return;
+    }
+
+    const sessionKey = editingLead ? `edit:${editingLead.id}` : 'new';
+    if (lastInitSessionRef.current === sessionKey) {
+      return;
+    }
+    lastInitSessionRef.current = sessionKey;
+
     if (editingLead) {
-      const gmMatch = teamMembers.find(
+      const gmMatch = membersByCategory.GM.find(
         (m) =>
           (editingLead.gmId && m.id === editingLead.gmId) ||
           m.name.toLowerCase() === editingLead.gmName.toLowerCase()
       );
-      const mmMatch = teamMembers.find(
+      const mmMatch = membersByCategory.MM.find(
         (m) =>
           (editingLead.mmId && m.id === editingLead.mmId) ||
           m.name.toLowerCase() === editingLead.mmName.toLowerCase()
       );
-      const tseMatch = teamMembers.find(
+      const tseMatch = membersByCategory.TSE.find(
         (m) =>
           (editingLead.tseId && m.id === editingLead.tseId) ||
           m.name.toLowerCase() === editingLead.tseName.toLowerCase()
@@ -135,7 +153,8 @@ export function KycFormModal({
       setNotes(editingLead.notes);
     } else {
       setGmId(
-        activeUser.salespersonCategory === 'GM'
+        activeUser.salespersonCategory === 'GM' &&
+          membersByCategory.GM.some((m) => m.id === activeUser.id)
           ? activeUser.id
           : membersByCategory.GM.length === 0
             ? '__custom__'
@@ -143,7 +162,8 @@ export function KycFormModal({
       );
       setGmCustomName('');
       setMmId(
-        activeUser.salespersonCategory === 'MM'
+        activeUser.salespersonCategory === 'MM' &&
+          membersByCategory.MM.some((m) => m.id === activeUser.id)
           ? activeUser.id
           : membersByCategory.MM.length === 0
             ? '__custom__'
@@ -151,7 +171,8 @@ export function KycFormModal({
       );
       setMmCustomName('');
       setTseId(
-        activeUser.salespersonCategory === 'TSE'
+        activeUser.salespersonCategory === 'TSE' &&
+          membersByCategory.TSE.some((m) => m.id === activeUser.id)
           ? activeUser.id
           : membersByCategory.TSE.length === 0
             ? '__custom__'
@@ -179,15 +200,42 @@ export function KycFormModal({
       setNotes('');
     }
     setErrors({});
-  }, [isOpen, editingLead, activeUser, teamMembers, membersByCategory]);
+    setGstLookupState('idle');
+    setGstLookupMessage('');
+    lastLookedUpGstinRef.current = editingLead ? editingLead.gstin.toUpperCase() : '';
+  }, [isOpen, editingLead, activeUser, membersByCategory]);
+
+  // If Master sheet finishes loading after modal opens, upgrade untouched empty custom inputs to dropdowns
+  useEffect(() => {
+    if (!isOpen || editingLead) return;
+    if (membersByCategory.GM.length > 0 && gmId === '__custom__' && !gmCustomName.trim()) {
+      setGmId('');
+    }
+    if (membersByCategory.MM.length > 0 && mmId === '__custom__' && !mmCustomName.trim()) {
+      setMmId('');
+    }
+    if (membersByCategory.TSE.length > 0 && tseId === '__custom__' && !tseCustomName.trim()) {
+      setTseId('');
+    }
+  }, [
+    isOpen,
+    editingLead,
+    membersByCategory,
+    gmId,
+    gmCustomName,
+    mmId,
+    mmCustomName,
+    tseId,
+    tseCustomName,
+  ]);
 
   if (!isOpen) return null;
 
   const gstCheck = validateGstin(gstin);
 
-  const selectedGmMember = teamMembers.find((m) => m.id === gmId) ?? null;
-  const selectedMmMember = teamMembers.find((m) => m.id === mmId) ?? null;
-  const selectedTseMember = teamMembers.find((m) => m.id === tseId) ?? null;
+  const selectedGmMember = membersByCategory.GM.find((m) => m.id === gmId) ?? null;
+  const selectedMmMember = membersByCategory.MM.find((m) => m.id === mmId) ?? null;
+  const selectedTseMember = membersByCategory.TSE.find((m) => m.id === tseId) ?? null;
 
   const resolvedGmName =
     gmId === '__custom__' ? gmCustomName.trim() : selectedGmMember?.name ?? '';
@@ -220,12 +268,81 @@ export function KycFormModal({
     setMmSubmitted(true);
   };
 
+  const handleLookupGstin = async (explicitGstin?: string) => {
+    const target = (explicitGstin ?? gstin).toUpperCase().replace(/[^0-9A-Z]/g, '');
+    const check = validateGstin(target);
+    if (!check.valid) {
+      setGstLookupState('error');
+      setGstLookupMessage(check.message);
+      return;
+    }
+
+    lastLookedUpGstinRef.current = target;
+    setGstLookupState('loading');
+    setGstLookupMessage('Checking GSTIN details...');
+    try {
+      const result = await lookupGstinDetails(target);
+      if (result.state && !stateName.trim()) {
+        setStateName(result.state);
+      }
+      if (!result.configured) {
+        setGstLookupState('not_configured');
+        setGstLookupMessage(
+          result.message ||
+            'State auto-detected. Add GSTIN_API_KEY in .env to auto-fetch full registered address.'
+        );
+        return;
+      }
+      if (!result.found) {
+        setGstLookupState('error');
+        setGstLookupMessage(result.message || 'GSTIN details not found.');
+        return;
+      }
+
+      if (result.legalName || result.tradeName) {
+        setCompanyName((prev) => prev.trim() || result.legalName || result.tradeName);
+      }
+      if (result.address) {
+        setAddress(result.address);
+      }
+      if (result.city) {
+        setCity(result.city);
+      }
+      if (result.state) {
+        setStateName(result.state);
+      }
+      if (result.pincode) {
+        setPincode(result.pincode);
+      }
+      setGstLookupState('filled');
+      setGstLookupMessage(
+        result.status
+          ? `GSTIN ${result.status} — Registered address auto-filled.`
+          : 'Registered address auto-filled from GSTIN.'
+      );
+    } catch (err) {
+      setGstLookupState('error');
+      setGstLookupMessage(
+        err instanceof Error ? err.message : 'Unable to fetch GSTIN details right now.'
+      );
+    }
+  };
+
   const handleGstinChange = (value: string) => {
     const upper = value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 15);
     setGstin(upper);
     const check = validateGstin(upper);
     if (check.stateName && !stateName) {
       setStateName(check.stateName);
+    }
+    if (upper.length < 15) {
+      setGstLookupState('idle');
+      setGstLookupMessage('');
+      lastLookedUpGstinRef.current = '';
+      return;
+    }
+    if (check.valid && lastLookedUpGstinRef.current !== upper) {
+      void handleLookupGstin(upper);
     }
   };
 
@@ -416,30 +533,58 @@ export function KycFormModal({
               <label className="block text-xs font-medium text-slate-700 mb-1.5">
                 GSTIN (15 Characters) *
               </label>
-              <input
-                type="text"
-                value={gstin}
-                onChange={(e) => handleGstinChange(e.target.value)}
-                placeholder="27AABCU9603R1ZM"
-                maxLength={15}
-                className={`${INPUT_CLASS} font-mono uppercase`}
-              />
-              <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  type="text"
+                  value={gstin}
+                  onChange={(e) => handleGstinChange(e.target.value)}
+                  placeholder="27AABCU9603R1ZM"
+                  maxLength={15}
+                  className={`${INPUT_CLASS} font-mono uppercase flex-1`}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleLookupGstin()}
+                  disabled={!gstCheck.valid || gstLookupState === 'loading'}
+                  className="min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0D4F3C] hover:border-[#0D4F3C] hover:bg-[#E8F6EE]/60 disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap shrink-0 transition-colors"
+                >
+                  {gstLookupState === 'loading' ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Search className="h-3.5 w-3.5" />
+                  )}
+                  <span>{gstLookupState === 'loading' ? 'Fetching...' : 'Fetch GST Address'}</span>
+                </button>
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                 {gstCheck.valid ? (
                   <span className="inline-flex items-center gap-1 text-emerald-700">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
                     <span>{gstCheck.message}</span>
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 text-slate-500">
                     {errors.gstin ? (
                       <>
-                        <AlertCircle className="h-3.5 w-3.5 text-rose-600" />
+                        <AlertCircle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
                         <span className="text-rose-700">{errors.gstin}</span>
                       </>
                     ) : (
                       <span>{gstin ? gstCheck.message : 'Format: 27AABCU9603R1ZM'}</span>
                     )}
+                  </span>
+                )}
+                {gstLookupMessage && gstLookupState !== 'idle' && (
+                  <span
+                    className={`text-xs ${
+                      gstLookupState === 'filled'
+                        ? 'font-medium text-emerald-700'
+                        : gstLookupState === 'error'
+                          ? 'text-rose-700'
+                          : 'text-slate-500'
+                    }`}
+                  >
+                    · {gstLookupMessage}
                   </span>
                 )}
               </div>
@@ -696,9 +841,9 @@ export function KycFormModal({
                       <span className="font-semibold text-slate-900 truncate">
                         {resolvedGmName}
                       </span>
-                      {selectedGmMember && (
+                      {selectedGmMember && selectedGmMember.meta && (
                         <span className="text-xs text-slate-500 truncate">
-                          ({selectedGmMember.territory})
+                          ({selectedGmMember.meta})
                         </span>
                       )}
                     </div>
@@ -726,7 +871,7 @@ export function KycFormModal({
                           <option value="">Select General Manager</option>
                           {membersByCategory.GM.map((member) => (
                             <option key={member.id} value={member.id}>
-                              {member.name} ({member.territory})
+                              {member.meta ? `${member.name} (${member.meta})` : member.name}
                             </option>
                           ))}
                           <option value="__custom__">Enter GM name manually...</option>
@@ -783,9 +928,9 @@ export function KycFormModal({
                         <span className="font-semibold text-slate-900 truncate">
                           {resolvedMmName}
                         </span>
-                        {selectedMmMember && (
+                        {selectedMmMember && selectedMmMember.meta && (
                           <span className="text-xs text-slate-500 truncate">
-                            ({selectedMmMember.territory})
+                            ({selectedMmMember.meta})
                           </span>
                         )}
                       </div>
@@ -813,7 +958,7 @@ export function KycFormModal({
                             <option value="">Select Marketing Manager</option>
                             {membersByCategory.MM.map((member) => (
                               <option key={member.id} value={member.id}>
-                                {member.name} ({member.territory})
+                                {member.meta ? `${member.name} (${member.meta})` : member.name}
                               </option>
                             ))}
                             <option value="__custom__">Enter MM name manually...</option>
@@ -878,7 +1023,7 @@ export function KycFormModal({
                         <option value="">Select Territory Sales Executive</option>
                         {membersByCategory.TSE.map((member) => (
                           <option key={member.id} value={member.id}>
-                            {member.name} ({member.territory})
+                            {member.meta ? `${member.name} (${member.meta})` : member.name}
                           </option>
                         ))}
                         <option value="__custom__">Enter TSE name manually...</option>

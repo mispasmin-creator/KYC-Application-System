@@ -9,8 +9,10 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { KycLead, TeamMember } from '../types/kyc';
 import { formatDateTime, validateGstin } from '../utils/validators';
+import { KycPrintPreviewModal } from './KycPrintPreviewModal';
 
 interface KycDossierDrawerProps {
   lead: KycLead | null;
@@ -27,23 +29,37 @@ export function KycDossierDrawer({
   onEdit,
   onDeleteLead,
 }: KycDossierDrawerProps) {
+  const [showPrintPreview, setShowPrintPreview] = useState(false);
+
+  useEffect(() => {
+    setShowPrintPreview(false);
+  }, [lead?.id]);
+
   if (!lead) return null;
 
   const canEdit = Boolean(activeUser);
   const gstResult = validateGstin(lead.gstin);
 
   const handlePrint = () => {
-    window.print();
+    setShowPrintPreview(true);
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-stretch sm:justify-end bg-slate-900/40 backdrop-blur-xs print:static print:bg-white print:block"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="flex h-[92dvh] sm:h-full w-full max-w-2xl flex-col rounded-t-3xl sm:rounded-none bg-gradient-to-br from-[#EDF6F5] via-white to-[#F4F9F5] border-t sm:border-t-0 sm:border-l border-white/80 shadow-2xl overflow-hidden pb-safe print:h-auto print:max-w-none print:border-0 print:bg-white print:shadow-none">
+    <>
+      <div
+        className={`fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-6 bg-slate-900/40 backdrop-blur-xs print:static print:bg-white print:block ${
+          showPrintPreview ? 'print:hidden' : ''
+        }`}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={lead.companyName}
+        className="flex max-h-[92dvh] sm:max-h-[90dvh] w-full max-w-2xl flex-col rounded-3xl bg-gradient-to-br from-[#EDF6F5] via-white to-[#F4F9F5] border border-white/80 shadow-2xl overflow-hidden pb-safe print:h-auto print:max-h-none print:max-w-none print:border-0 print:bg-white print:shadow-none"
+      >
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-white/75 bg-white/70 backdrop-blur-md px-4 sm:px-6 py-4 print:bg-white print:border-slate-200">
           <div className="min-w-0">
@@ -275,5 +291,10 @@ export function KycDossierDrawer({
         </div>
       </div>
     </div>
+
+      {showPrintPreview && (
+        <KycPrintPreviewModal lead={lead} onClose={() => setShowPrintPreview(false)} />
+      )}
+    </>
   );
 }

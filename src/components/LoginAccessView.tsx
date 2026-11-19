@@ -15,11 +15,14 @@ import {
 import { useMemo, useState } from 'react';
 import {
   AccountStatus,
+  DEFAULT_ALLOWED_PAGES,
+  NavSection,
+  PAGE_ACCESS_OPTIONS,
   SALESPERSON_CATEGORIES,
   SalespersonCategory,
   TeamMember,
 } from '../types/kyc';
-import { isValidIndianPhone, normalizeIndianPhone } from '../utils/validators';
+import { formatCategoryBadge, isProtectedAdminMember } from '../utils/teamAccessUtils';
 
 interface LoginAccessViewProps {
   teamMembers: TeamMember[];
@@ -46,25 +49,21 @@ export function LoginAccessView({
   // Edit modal state
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [editName, setEditName] = useState('');
-  const [editEmail, setEditEmail] = useState('');
-  const [editPhone, setEditPhone] = useState('');
-  const [editTerritory, setEditTerritory] = useState('');
   const [editCategory, setEditCategory] = useState<SalespersonCategory>('TSE');
   const [editPassword, setEditPassword] = useState('');
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [editStatus, setEditStatus] = useState<AccountStatus>('active');
+  const [editAllowedPages, setEditAllowedPages] = useState<NavSection[]>(DEFAULT_ALLOWED_PAGES);
   const [editError, setEditError] = useState('');
 
   // Add user modal state
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newEmail, setNewEmail] = useState('');
-  const [newPhone, setNewPhone] = useState('');
-  const [newTerritory, setNewTerritory] = useState('');
   const [newCategory, setNewCategory] = useState<SalespersonCategory>('TSE');
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [newStatus, setNewStatus] = useState<AccountStatus>('active');
+  const [newAllowedPages, setNewAllowedPages] = useState<NavSection[]>(DEFAULT_ALLOWED_PAGES);
   const [addError, setAddError] = useState('');
 
   const activeCount = useMemo(
@@ -84,8 +83,6 @@ export function LoginAccessView({
       if (!q) return true;
       return (
         member.name.toLowerCase().includes(q) ||
-        member.email.toLowerCase().includes(q) ||
-        member.phone.toLowerCase().includes(q) ||
         member.territory.toLowerCase().includes(q) ||
         member.salespersonCategory.toLowerCase().includes(q)
       );
@@ -93,39 +90,49 @@ export function LoginAccessView({
   }, [teamMembers, searchQuery, statusFilter]);
 
   const openEditModal = (member: TeamMember) => {
+    if (isProtectedAdminMember(member)) return;
     setEditingMember(member);
     setEditName(member.name);
-    setEditEmail(member.email);
-    setEditPhone(member.phone);
-    setEditTerritory(member.territory);
     setEditCategory(member.salespersonCategory);
     setEditPassword(member.password ?? '');
     setShowEditPassword(false);
     setEditStatus(member.status ?? 'active');
+    setEditAllowedPages(
+      member.allowedPages && member.allowedPages.length > 0
+        ? member.allowedPages
+        : DEFAULT_ALLOWED_PAGES
+    );
     setEditError('');
+  };
+
+  const toggleAllowedPage = (
+    current: NavSection[],
+    pageId: NavSection,
+    setter: (next: NavSection[]) => void
+  ) => {
+    if (current.includes(pageId)) {
+      setter(current.filter((p) => p !== pageId));
+    } else {
+      setter([...current, pageId]);
+    }
   };
 
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingMember) return;
+    if (!editingMember || isProtectedAdminMember(editingMember)) {
+      setEditingMember(null);
+      return;
+    }
     if (editName.trim().length < 2) {
       setEditError('Full name must be at least 2 characters.');
       return;
     }
-    if (!editEmail.trim() || !editEmail.includes('@')) {
-      setEditError('Please enter a valid work email.');
-      return;
-    }
-    if (!isValidIndianPhone(editPhone)) {
-      setEditError('Please enter a valid 10-digit mobile number.');
-      return;
-    }
-    if (editTerritory.trim().length < 2) {
-      setEditError('Territory / zone is required.');
-      return;
-    }
     if (editPassword.trim().length < 6) {
       setEditError('Password must be at least 6 characters.');
+      return;
+    }
+    if (editAllowedPages.length === 0) {
+      setEditError('Select at least one page for Page Access.');
       return;
     }
     if (editingMember.id === activeUser.id && editStatus === 'inactive') {
@@ -133,28 +140,27 @@ export function LoginAccessView({
       return;
     }
 
-    const normalizedPhone = normalizeIndianPhone(editPhone);
     const duplicate = teamMembers.some(
       (m) =>
         m.id !== editingMember.id &&
-        (m.email.toLowerCase() === editEmail.trim().toLowerCase() ||
-          normalizeIndianPhone(m.phone) === normalizedPhone)
+        m.name.trim().toLowerCase() === editName.trim().toLowerCase()
     );
     if (duplicate) {
-      setEditError('Another account already uses this email or mobile number.');
+      setEditError('Another account already uses this user name.');
       return;
     }
+
+    const resolvedPages =
+      editCategory === 'ADMIN' ? [...DEFAULT_ALLOWED_PAGES] : editAllowedPages;
 
     onUpdateTeamMember({
       ...editingMember,
       name: editName.trim(),
-      email: editEmail.trim().toLowerCase(),
-      phone: normalizedPhone,
-      territory: editTerritory.trim(),
       salespersonCategory: editCategory,
-      role: editCategory === 'GM' ? 'manager' : 'salesperson',
+      role: editCategory === 'GM' || editCategory === 'ADMIN' ? 'manager' : 'salesperson',
       password: editPassword.trim(),
       status: editStatus,
+      allowedPages: resolvedPages,
     });
     setEditingMember(null);
   };
@@ -165,52 +171,43 @@ export function LoginAccessView({
       setAddError('Full name must be at least 2 characters.');
       return;
     }
-    if (!newEmail.trim() || !newEmail.includes('@')) {
-      setAddError('Please enter a valid work email.');
-      return;
-    }
-    if (!isValidIndianPhone(newPhone)) {
-      setAddError('Please enter a valid 10-digit mobile number.');
-      return;
-    }
-    if (newTerritory.trim().length < 2) {
-      setAddError('Territory / zone is required.');
-      return;
-    }
     if (newPassword.trim().length < 6) {
       setAddError('Password must be at least 6 characters.');
       return;
     }
-
-    const normalizedPhone = normalizeIndianPhone(newPhone);
-    const duplicate = teamMembers.some(
-      (m) =>
-        m.email.toLowerCase() === newEmail.trim().toLowerCase() ||
-        normalizeIndianPhone(m.phone) === normalizedPhone
-    );
-    if (duplicate) {
-      setAddError('An account with this email or mobile number already exists.');
+    if (newAllowedPages.length === 0) {
+      setAddError('Select at least one page for Page Access.');
       return;
     }
 
+    const duplicate = teamMembers.some(
+      (m) => m.name.trim().toLowerCase() === newName.trim().toLowerCase()
+    );
+    if (duplicate) {
+      setAddError('An account with this user name already exists.');
+      return;
+    }
+
+    const resolvedPages =
+      newCategory === 'ADMIN' ? [...DEFAULT_ALLOWED_PAGES] : newAllowedPages;
+
     onAddTeamMember({
       name: newName.trim(),
-      email: newEmail.trim().toLowerCase(),
-      phone: normalizedPhone,
-      role: newCategory === 'GM' ? 'manager' : 'salesperson',
+      email: '',
+      phone: '',
+      role: newCategory === 'GM' || newCategory === 'ADMIN' ? 'manager' : 'salesperson',
       salespersonCategory: newCategory,
-      territory: newTerritory.trim(),
+      territory: '',
       password: newPassword.trim(),
       status: newStatus,
+      allowedPages: resolvedPages,
     });
 
     setNewName('');
-    setNewEmail('');
-    setNewPhone('');
-    setNewTerritory('');
     setNewCategory('TSE');
     setNewPassword('');
     setNewStatus('active');
+    setNewAllowedPages(DEFAULT_ALLOWED_PAGES);
     setAddError('');
     setIsAddOpen(false);
   };
@@ -233,6 +230,7 @@ export function LoginAccessView({
           type="button"
           onClick={() => {
             setAddError('');
+            setNewAllowedPages(DEFAULT_ALLOWED_PAGES);
             setIsAddOpen(true);
           }}
           className="ml-auto min-h-[44px] inline-flex items-center gap-1.5 rounded-xl bg-[#0D4F3C] px-4 py-2 text-xs font-semibold text-white hover:bg-[#093b2d] shadow-[0_6px_16px_-4px_rgba(13,79,60,0.4)] transition-all whitespace-nowrap shrink-0"
@@ -312,7 +310,7 @@ export function LoginAccessView({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search user, email, mobile..."
+            placeholder="Search user or category..."
             className="w-full min-h-[40px] rounded-xl border border-white/85 bg-white/85 py-1.5 pl-9 pr-3 text-base sm:text-xs text-slate-900 placeholder:text-slate-400 focus:border-[#0D4F3C] focus:outline-none"
           />
         </div>
@@ -326,9 +324,11 @@ export function LoginAccessView({
           </div>
         ) : (
           filteredMembers.map((member) => {
-            const isActive = (member.status ?? 'active') === 'active';
+            const isProtectedAdmin = isProtectedAdminMember(member);
+            const isActive = isProtectedAdmin || (member.status ?? 'active') === 'active';
             const isSelf = member.id === activeUser.id;
             const isPasswordVisible = Boolean(revealedPasswords[member.id]);
+            const categoryLabel = formatCategoryBadge(member.salespersonCategory, member.name);
 
             return (
               <div
@@ -347,9 +347,21 @@ export function LoginAccessView({
                         </span>
                       )}
                     </div>
-                    <div className="mt-0.5 text-xs text-slate-500 truncate">{member.email}</div>
-                    <div className="font-mono text-[11px] text-slate-500 tabular-nums">
-                      {member.phone || '—'} · {member.salespersonCategory} · {member.territory}
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <span
+                        className={`inline-flex rounded-md border px-1.5 py-0.5 font-mono text-[10px] font-semibold ${
+                          isProtectedAdmin
+                            ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                            : 'border-emerald-200/80 bg-emerald-50/90 text-[#0D4F3C]'
+                        }`}
+                      >
+                        {categoryLabel}
+                      </span>
+                      {member.territory && (
+                        <span className="font-mono text-[11px] text-slate-500">
+                          {member.territory}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -362,6 +374,31 @@ export function LoginAccessView({
                   >
                     {isActive ? 'Active' : 'Deactivated'}
                   </span>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {isProtectedAdmin && (
+                    <span className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+                      Full Access
+                    </span>
+                  )}
+                  {(isProtectedAdmin
+                    ? DEFAULT_ALLOWED_PAGES
+                    : member.allowedPages && member.allowedPages.length > 0
+                      ? member.allowedPages
+                      : DEFAULT_ALLOWED_PAGES
+                  ).map((pageId) => {
+                    const label =
+                      PAGE_ACCESS_OPTIONS.find((opt) => opt.id === pageId)?.label ?? pageId;
+                    return (
+                      <span
+                        key={pageId}
+                        className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-700"
+                      >
+                        {label}
+                      </span>
+                    );
+                  })}
                 </div>
 
                 <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
@@ -385,35 +422,42 @@ export function LoginAccessView({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => openEditModal(member)}
-                    className="min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 active:scale-[0.98] transition-transform"
-                  >
-                    <Edit3 className="h-3.5 w-3.5" />
-                    <span>Edit</span>
-                  </button>
-
-                  {!isSelf ? (
+                {isProtectedAdmin ? (
+                  <div className="flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 px-3 py-2 text-xs font-semibold text-indigo-700">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    <span>Full Control · Protected</span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2.5">
                     <button
                       type="button"
-                      onClick={() => onToggleStatus(member, isActive ? 'inactive' : 'active')}
-                      className={`min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold active:scale-[0.98] transition-transform ${
-                        isActive
-                          ? 'border-rose-200 bg-rose-50 text-rose-700'
-                          : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      }`}
+                      onClick={() => openEditModal(member)}
+                      className="min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 active:scale-[0.98] transition-transform"
                     >
-                      <Power className="h-3.5 w-3.5" />
-                      <span>{isActive ? 'Deactivate' : 'Activate'}</span>
+                      <Edit3 className="h-3.5 w-3.5" />
+                      <span>Edit</span>
                     </button>
-                  ) : (
-                    <div className="min-h-[44px] flex items-center justify-center rounded-xl bg-slate-50 text-xs font-medium text-slate-400">
-                      Current Session
-                    </div>
-                  )}
-                </div>
+
+                    {!isSelf ? (
+                      <button
+                        type="button"
+                        onClick={() => onToggleStatus(member, isActive ? 'inactive' : 'active')}
+                        className={`min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold active:scale-[0.98] transition-transform ${
+                          isActive
+                            ? 'border-rose-200 bg-rose-50 text-rose-700'
+                            : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        }`}
+                      >
+                        <Power className="h-3.5 w-3.5" />
+                        <span>{isActive ? 'Deactivate' : 'Activate'}</span>
+                      </button>
+                    ) : (
+                      <div className="min-h-[44px] flex items-center justify-center rounded-xl bg-slate-50 text-xs font-medium text-slate-400">
+                        Current Session
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })
@@ -427,8 +471,8 @@ export function LoginAccessView({
             <thead>
               <tr className="border-b border-slate-200/70 bg-emerald-950/[0.03] text-xs font-semibold text-slate-600">
                 <th className="py-3.5 px-4 whitespace-nowrap">User Name</th>
-                <th className="py-3.5 px-4 whitespace-nowrap">Email & Mobile</th>
-                <th className="py-3.5 px-4 whitespace-nowrap">Category & Zone</th>
+                <th className="py-3.5 px-4 whitespace-nowrap">Category</th>
+                <th className="py-3.5 px-4 whitespace-nowrap">Page Access</th>
                 <th className="py-3.5 px-4 whitespace-nowrap">Password</th>
                 <th className="py-3.5 px-4 whitespace-nowrap">Status</th>
                 <th className="py-3.5 px-4 whitespace-nowrap text-right">Actions</th>
@@ -443,9 +487,16 @@ export function LoginAccessView({
                 </tr>
               ) : (
                 filteredMembers.map((member) => {
-                  const isActive = (member.status ?? 'active') === 'active';
+                  const isProtectedAdmin = isProtectedAdminMember(member);
+                  const isActive = isProtectedAdmin || (member.status ?? 'active') === 'active';
                   const isSelf = member.id === activeUser.id;
                   const isPasswordVisible = Boolean(revealedPasswords[member.id]);
+                  const categoryLabel = formatCategoryBadge(member.salespersonCategory, member.name);
+                  const pages = isProtectedAdmin
+                    ? DEFAULT_ALLOWED_PAGES
+                    : member.allowedPages && member.allowedPages.length > 0
+                      ? member.allowedPages
+                      : DEFAULT_ALLOWED_PAGES;
 
                   return (
                     <tr key={member.id} className="hover:bg-white/65 transition-colors">
@@ -461,17 +512,40 @@ export function LoginAccessView({
                       </td>
 
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="text-xs font-medium text-slate-800">{member.email}</div>
-                        <div className="font-mono text-[11px] text-slate-500 tabular-nums">
-                          {member.phone || '—'}
-                        </div>
+                        <span
+                          className={`inline-flex rounded-lg border px-2 py-0.5 font-mono text-[11px] font-semibold ${
+                            isProtectedAdmin
+                              ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                              : 'border-emerald-200/80 bg-emerald-50/90 text-[#0D4F3C]'
+                          }`}
+                        >
+                          {categoryLabel}
+                        </span>
+                        {member.territory && (
+                          <span className="ml-2 text-xs text-slate-600">{member.territory}</span>
+                        )}
                       </td>
 
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <span className="inline-flex rounded-lg border border-emerald-200/80 bg-emerald-50/90 px-2 py-0.5 font-mono text-[11px] font-semibold text-[#0D4F3C]">
-                          {member.salespersonCategory}
-                        </span>
-                        <span className="ml-2 text-xs text-slate-600">{member.territory}</span>
+                      <td className="py-3.5 px-4">
+                        <div className="flex flex-wrap gap-1">
+                          {isProtectedAdmin && (
+                            <span className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 whitespace-nowrap">
+                              Full Access
+                            </span>
+                          )}
+                          {pages.map((pageId) => {
+                            const label =
+                              PAGE_ACCESS_OPTIONS.find((opt) => opt.id === pageId)?.label ?? pageId;
+                            return (
+                              <span
+                                key={pageId}
+                                className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 whitespace-nowrap"
+                              >
+                                {label}
+                              </span>
+                            );
+                          })}
+                        </div>
                       </td>
 
                       <td className="py-3.5 px-4 whitespace-nowrap">
@@ -512,33 +586,40 @@ export function LoginAccessView({
                       </td>
 
                       <td className="py-3.5 px-4 whitespace-nowrap text-right">
-                        <div className="inline-flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openEditModal(member)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:border-[#0D4F3C] hover:text-[#0D4F3C] transition-colors"
-                          >
-                            <Edit3 className="h-3.5 w-3.5" />
-                            <span>Edit</span>
-                          </button>
-
-                          {!isSelf && (
+                        {isProtectedAdmin ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/80 px-2.5 py-1 text-xs font-semibold text-indigo-700">
+                            <ShieldCheck className="h-3.5 w-3.5" />
+                            <span>Full Control · Protected</span>
+                          </span>
+                        ) : (
+                          <div className="inline-flex items-center gap-2">
                             <button
                               type="button"
-                              onClick={() =>
-                                onToggleStatus(member, isActive ? 'inactive' : 'active')
-                              }
-                              className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${
-                                isActive
-                                  ? 'border-rose-200 bg-rose-50/80 text-rose-700 hover:bg-rose-100'
-                                  : 'border-emerald-200 bg-emerald-50/80 text-emerald-700 hover:bg-emerald-100'
-                              }`}
+                              onClick={() => openEditModal(member)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:border-[#0D4F3C] hover:text-[#0D4F3C] transition-colors"
                             >
-                              <Power className="h-3.5 w-3.5" />
-                              <span>{isActive ? 'Deactivate' : 'Activate'}</span>
+                              <Edit3 className="h-3.5 w-3.5" />
+                              <span>Edit</span>
                             </button>
-                          )}
-                        </div>
+
+                            {!isSelf && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onToggleStatus(member, isActive ? 'inactive' : 'active')
+                                }
+                                className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                                  isActive
+                                    ? 'border-rose-200 bg-rose-50/80 text-rose-700 hover:bg-rose-100'
+                                    : 'border-emerald-200 bg-emerald-50/80 text-emerald-700 hover:bg-emerald-100'
+                                }`}
+                              >
+                                <Power className="h-3.5 w-3.5" />
+                                <span>{isActive ? 'Deactivate' : 'Activate'}</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -580,54 +661,16 @@ export function LoginAccessView({
 
             <form onSubmit={handleEditSubmit} className="p-5 sm:p-6 space-y-4">
               <div className="rounded-2xl border border-slate-200/90 bg-white p-4 space-y-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Full Name *
-                    </label>
-                    <input
-                      type="text"
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className={INPUT_CLASS}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Mobile Number *
-                    </label>
-                    <input
-                      type="tel"
-                      value={editPhone}
-                      onChange={(e) => setEditPhone(e.target.value)}
-                      className={`${INPUT_CLASS} font-mono`}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Work Email *
-                    </label>
-                    <input
-                      type="email"
-                      value={editEmail}
-                      onChange={(e) => setEditEmail(e.target.value)}
-                      className={INPUT_CLASS}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Territory / Zone *
-                    </label>
-                    <input
-                      type="text"
-                      value={editTerritory}
-                      onChange={(e) => setEditTerritory(e.target.value)}
-                      className={INPUT_CLASS}
-                    />
-                  </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                    Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className={INPUT_CLASS}
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -637,7 +680,13 @@ export function LoginAccessView({
                     </label>
                     <select
                       value={editCategory}
-                      onChange={(e) => setEditCategory(e.target.value as SalespersonCategory)}
+                      onChange={(e) => {
+                        const nextCat = e.target.value as SalespersonCategory;
+                        setEditCategory(nextCat);
+                        if (nextCat === 'ADMIN') {
+                          setEditAllowedPages([...DEFAULT_ALLOWED_PAGES]);
+                        }
+                      }}
                       className={INPUT_CLASS}
                     >
                       {SALESPERSON_CATEGORIES.map((cat) => (
@@ -689,6 +738,69 @@ export function LoginAccessView({
                       )}
                     </button>
                   </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-medium text-slate-700">
+                      Page Access *
+                    </label>
+                    {editCategory === 'ADMIN' ? (
+                      <span className="text-[11px] font-semibold text-indigo-700">
+                        Full Access (All Pages)
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditAllowedPages(
+                            editAllowedPages.length === PAGE_ACCESS_OPTIONS.length
+                              ? ['overview']
+                              : [...DEFAULT_ALLOWED_PAGES]
+                          )
+                        }
+                        className="text-[11px] font-semibold text-[#0D4F3C] hover:underline"
+                      >
+                        {editAllowedPages.length === PAGE_ACCESS_OPTIONS.length
+                          ? 'Dashboard Only'
+                          : 'Select All'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PAGE_ACCESS_OPTIONS.map((page) => {
+                      const isAdmin = editCategory === 'ADMIN';
+                      const checked = isAdmin || editAllowedPages.includes(page.id);
+                      return (
+                        <label
+                          key={page.id}
+                          className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-xs font-medium transition-colors min-h-[44px] ${
+                            isAdmin ? 'cursor-default opacity-90' : 'cursor-pointer'
+                          } ${
+                            checked
+                              ? 'border-[#0D4F3C]/40 bg-[#E8F6EE]/70 text-[#0D4F3C]'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={isAdmin}
+                            onChange={() =>
+                              toggleAllowedPage(editAllowedPages, page.id, setEditAllowedPages)
+                            }
+                            className="h-4 w-4 rounded border-slate-300 text-[#0D4F3C] focus:ring-[#0D4F3C]"
+                          />
+                          <span className="truncate">{page.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {editCategory === 'ADMIN' && (
+                    <p className="mt-1.5 text-[11px] text-indigo-700">
+                      Admin accounts automatically have full access to all pages and controls.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -742,58 +854,17 @@ export function LoginAccessView({
 
             <form onSubmit={handleAddSubmit} className="p-5 sm:p-6 space-y-4">
               <div className="rounded-2xl border border-slate-200/90 bg-white p-4 space-y-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Full Name *
-                    </label>
-                    <input
-                      type="text"
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                      placeholder="e.g. Karan Malhotra"
-                      className={INPUT_CLASS}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Mobile Number *
-                    </label>
-                    <input
-                      type="tel"
-                      value={newPhone}
-                      onChange={(e) => setNewPhone(e.target.value)}
-                      placeholder="10-digit mobile"
-                      className={`${INPUT_CLASS} font-mono`}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Work Email *
-                    </label>
-                    <input
-                      type="email"
-                      value={newEmail}
-                      onChange={(e) => setNewEmail(e.target.value)}
-                      placeholder="name@company.in"
-                      className={INPUT_CLASS}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                      Territory / Zone *
-                    </label>
-                    <input
-                      type="text"
-                      value={newTerritory}
-                      onChange={(e) => setNewTerritory(e.target.value)}
-                      placeholder="e.g. North & Delhi"
-                      className={INPUT_CLASS}
-                    />
-                  </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                    Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="e.g. Karan Malhotra"
+                    className={INPUT_CLASS}
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -803,7 +874,13 @@ export function LoginAccessView({
                     </label>
                     <select
                       value={newCategory}
-                      onChange={(e) => setNewCategory(e.target.value as SalespersonCategory)}
+                      onChange={(e) => {
+                        const nextCat = e.target.value as SalespersonCategory;
+                        setNewCategory(nextCat);
+                        if (nextCat === 'ADMIN') {
+                          setNewAllowedPages([...DEFAULT_ALLOWED_PAGES]);
+                        }
+                      }}
                       className={INPUT_CLASS}
                     >
                       {SALESPERSON_CATEGORIES.map((cat) => (
@@ -854,6 +931,69 @@ export function LoginAccessView({
                       )}
                     </button>
                   </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-medium text-slate-700">
+                      Page Access *
+                    </label>
+                    {newCategory === 'ADMIN' ? (
+                      <span className="text-[11px] font-semibold text-indigo-700">
+                        Full Access (All Pages)
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setNewAllowedPages(
+                            newAllowedPages.length === PAGE_ACCESS_OPTIONS.length
+                              ? ['overview']
+                              : [...DEFAULT_ALLOWED_PAGES]
+                          )
+                        }
+                        className="text-[11px] font-semibold text-[#0D4F3C] hover:underline"
+                      >
+                        {newAllowedPages.length === PAGE_ACCESS_OPTIONS.length
+                          ? 'Dashboard Only'
+                          : 'Select All'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PAGE_ACCESS_OPTIONS.map((page) => {
+                      const isAdmin = newCategory === 'ADMIN';
+                      const checked = isAdmin || newAllowedPages.includes(page.id);
+                      return (
+                        <label
+                          key={page.id}
+                          className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-xs font-medium transition-colors min-h-[44px] ${
+                            isAdmin ? 'cursor-default opacity-90' : 'cursor-pointer'
+                          } ${
+                            checked
+                              ? 'border-[#0D4F3C]/40 bg-[#E8F6EE]/70 text-[#0D4F3C]'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={isAdmin}
+                            onChange={() =>
+                              toggleAllowedPage(newAllowedPages, page.id, setNewAllowedPages)
+                            }
+                            className="h-4 w-4 rounded border-slate-300 text-[#0D4F3C] focus:ring-[#0D4F3C]"
+                          />
+                          <span className="truncate">{page.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {newCategory === 'ADMIN' && (
+                    <p className="mt-1.5 text-[11px] text-indigo-700">
+                      Admin accounts automatically have full access to all pages and controls.
+                    </p>
+                  )}
                 </div>
               </div>
 

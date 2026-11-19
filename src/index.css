@@ -75,8 +75,14 @@
 }
 
 @media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  html,
   body {
-    background-color: #ffffff !important;
+    background: #ffffff !important;
+    background-image: none !important;
     color: #000000 !important;
   }
   .no-print {
