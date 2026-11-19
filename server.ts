@@ -1032,9 +1032,8 @@ async function findRowNumberById(
   return null;
 }
 
-async function createServer() {
-  const app = express();
-  app.use(express.json({ limit: '2mb' }));
+export const app = express();
+app.use(express.json({ limit: '2mb' }));
 
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({ ok: true });
@@ -1579,31 +1578,37 @@ async function createServer() {
     res.status(404).json({ error: 'API route not found.' });
   });
 
-  const isProd = process.env.NODE_ENV === 'production';
-  if (!isProd) {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.resolve(__dirname, 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (_req: Request, res: Response) => {
-      const indexFile = path.join(distPath, 'index.html');
-      if (fs.existsSync(indexFile)) {
-        res.sendFile(indexFile);
-      } else {
-        res.status(404).send('Not found');
-      }
+async function startServer() {
+  const isVercel = Boolean(process.env.VERCEL);
+  if (!isVercel) {
+    const isProd = process.env.NODE_ENV === 'production';
+    if (!isProd) {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.resolve(__dirname, 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (_req: Request, res: Response) => {
+        const indexFile = path.join(distPath, 'index.html');
+        if (fs.existsSync(indexFile)) {
+          res.sendFile(indexFile);
+        } else {
+          res.status(404).send('Not found');
+        }
+      });
+    }
+
+    const port = Number(process.env.PORT) || 3000;
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`KYC System server listening on http://localhost:${port}`);
     });
   }
-
-  const port = Number(process.env.PORT) || 3000;
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`KYC System server listening on http://localhost:${port}`);
-  });
 }
 
-void createServer();
+void startServer();
+
+export default app;
