@@ -1,9 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { KycLead } from '../types/kyc';
 import {
+  canUserAccessLead,
+  filterLeadsForUser,
   filterNonAdminMembers,
   formatCategoryBadge,
   getAllowedPagesForUser,
+  isLeadSubmittedBySalesperson,
   isProtectedAdminMember,
   normalizeTeamMemberCategory,
 } from './teamAccessUtils';
@@ -77,5 +81,139 @@ test('getAllowedPagesForUser grants full access to Admin and restricts team acco
   assert.deepEqual(
     getAllowedPagesForUser({ name: 'Sandeep', salespersonCategory: 'TSE', allowedPages: [] }),
     ['overview']
+  );
+});
+
+test('canUserAccessLead and filterLeadsForUser scope data strictly by user identity', () => {
+  const sampleLead: KycLead = {
+    id: 'KYC-001',
+    entityType: 'customer',
+    companyName: 'Passary Minerals',
+    industry: 'Manufacture',
+    gstin: '22AAHCP9274B1ZI',
+    address: 'Raipur',
+    city: 'Raipur',
+    state: 'Chhattisgarh',
+    pincode: '492001',
+    branchCount: 1,
+    branches: [],
+    managerName: 'Ahitesh',
+    managerPhone: '9876543210',
+    teamLeaderName: 'Leader',
+    teamLeaderPhone: '9876543211',
+    contactEmail: 'contact@passary.in',
+    salespersonId: 'tm-deepak',
+    salespersonName: 'Deepak Chauhan',
+    salespersonCategory: 'TSE',
+    gmId: 'tm-jayant',
+    gmName: 'Jayant Kumar Pandey',
+    mmId: 'tm-sagar',
+    mmName: 'Sagar Choudhary',
+    tseId: 'tm-rajendra',
+    tseName: 'Rajendra Kumar',
+    notes: '',
+    createdAt: '11/19/2026 09:06:19',
+    updatedAt: '11/19/2026 09:06:19',
+    activities: [
+      {
+        id: 'act-1',
+        timestamp: '11/19/2026 09:06:19',
+        actorName: 'Deepak Chauhan',
+        actorRole: 'salesperson',
+        action: 'KYC Saved',
+        detail: 'Created company',
+      },
+    ],
+  };
+
+  const adminUser = { id: 'admin-1', name: 'Admin', salespersonCategory: 'ADMIN' as const };
+  const deepak = { id: 'tm-deepak', name: 'Deepak Chauhan', salespersonCategory: 'TSE' as const };
+  const rajendra = { id: 'tm-rajendra', name: 'Rajendra Kumar', salespersonCategory: 'TSE' as const };
+  const jayant = { id: 'tm-jayant', name: 'Jayant Kumar Pandey', salespersonCategory: 'GM' as const };
+  const sagar = { id: 'tm-sagar', name: 'Sagar Choudhary', salespersonCategory: 'MM' as const };
+  const stranger = { id: 'tm-stranger', name: 'Ajay Gupta', salespersonCategory: 'TSE' as const };
+
+  // Admin sees all
+  assert.equal(canUserAccessLead(adminUser, sampleLead), true);
+
+  // Assigned sales reps see the lead
+  assert.equal(canUserAccessLead(deepak, sampleLead), true);
+  assert.equal(canUserAccessLead(rajendra, sampleLead), true);
+  assert.equal(canUserAccessLead(jayant, sampleLead), true);
+  assert.equal(canUserAccessLead(sagar, sampleLead), true);
+
+  // Unassigned user cannot see the lead
+  assert.equal(canUserAccessLead(stranger, sampleLead), false);
+  assert.equal(canUserAccessLead(null, sampleLead), false);
+
+  // filterLeadsForUser returns only accessible leads
+  assert.equal(filterLeadsForUser([sampleLead], adminUser).length, 1);
+  assert.equal(filterLeadsForUser([sampleLead], deepak).length, 1);
+  assert.equal(filterLeadsForUser([sampleLead], stranger).length, 0);
+});
+
+test('isLeadSubmittedBySalesperson awards KYC count strictly to creator and ignores GM, MM, TSE', () => {
+  const leadSubmittedByDeepak: KycLead = {
+    id: 'KYC-001',
+    entityType: 'customer',
+    companyName: 'Passary Minerals',
+    industry: 'Manufacture',
+    gstin: '22AAHCP9274B1ZI',
+    address: 'Raipur',
+    city: 'Raipur',
+    state: 'Chhattisgarh',
+    pincode: '492001',
+    branchCount: 1,
+    branches: [],
+    managerName: 'Ahitesh',
+    managerPhone: '9876543210',
+    teamLeaderName: 'Leader',
+    teamLeaderPhone: '9876543211',
+    contactEmail: 'contact@passary.in',
+    salespersonId: 'tm-deepak',
+    salespersonName: 'Deepak Chauhan',
+    salespersonCategory: 'TSE',
+    gmId: 'master-jayant',
+    gmName: 'Jayant Kumar Pandey',
+    mmId: 'master-sagar',
+    mmName: 'Sagar Choudhary',
+    tseId: 'master-rajendra',
+    tseName: 'Rajendra Kumar',
+    notes: '',
+    createdAt: '11/19/2026 09:06:19',
+    updatedAt: '11/19/2026 09:06:19',
+    activities: [
+      {
+        id: 'act-1',
+        timestamp: '11/19/2026 09:06:19',
+        actorName: 'Deepak Chauhan',
+        actorRole: 'salesperson',
+        action: 'KYC Saved',
+      },
+    ],
+  };
+
+  // 1. Creator gets credited
+  assert.equal(
+    isLeadSubmittedBySalesperson(leadSubmittedByDeepak, { id: 'tm-deepak', name: 'Deepak Chauhan' }),
+    true
+  );
+  assert.equal(
+    isLeadSubmittedBySalesperson(leadSubmittedByDeepak, { id: 'any-id', name: 'Deepak Chauhan' }),
+    true
+  );
+
+  // 2. GM, MM, TSE selected in form do NOT get credited
+  assert.equal(
+    isLeadSubmittedBySalesperson(leadSubmittedByDeepak, { id: 'master-jayant', name: 'Jayant Kumar Pandey' }),
+    false
+  );
+  assert.equal(
+    isLeadSubmittedBySalesperson(leadSubmittedByDeepak, { id: 'master-sagar', name: 'Sagar Choudhary' }),
+    false
+  );
+  assert.equal(
+    isLeadSubmittedBySalesperson(leadSubmittedByDeepak, { id: 'master-rajendra', name: 'Rajendra Kumar' }),
+    false
   );
 });

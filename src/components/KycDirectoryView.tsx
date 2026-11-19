@@ -1,4 +1,11 @@
-import { ArrowUpRight, FileSpreadsheet, Phone, Plus } from 'lucide-react';
+import {
+  ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
+  FileSpreadsheet,
+  Phone,
+  Plus,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   EntityType,
@@ -8,7 +15,9 @@ import {
   TeamMember,
 } from '../types/kyc';
 import { filterNonAdminMembers } from '../utils/teamAccessUtils';
-import { validateGstin } from '../utils/validators';
+import { isUnregisteredGstin, validateGstin } from '../utils/validators';
+import { CustomSelect } from './CustomSelect';
+import { KycCompanyCard } from './KycCompanyCard';
 
 interface KycDirectoryViewProps {
   leads: KycLead[];
@@ -36,10 +45,18 @@ export function KycDirectoryView({
   const [entityFilter, setEntityFilter] = useState<'all' | EntityType>(initialEntityFilter);
   const [salespersonFilter, setSalespersonFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<'all' | SalespersonCategory>('all');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(10);
+  const [pageSizeInput, setPageSizeInput] = useState<string>('10');
+  const [pageInput, setPageInput] = useState<string>('1');
 
   useEffect(() => {
     setEntityFilter(initialEntityFilter);
   }, [initialEntityFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [entityFilter, salespersonFilter, categoryFilter, globalSearchQuery]);
 
   const salespersons = useMemo(() => {
     const entries = new Map<string, string>();
@@ -109,6 +126,69 @@ export function KycDirectoryView({
     setCategoryFilter('all');
   };
 
+  const totalRecords = filteredLeads.length;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const startIndex = totalRecords === 0 ? 0 : (safePage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalRecords);
+
+  const paginatedLeads = useMemo(() => {
+    return filteredLeads.slice(startIndex, endIndex);
+  }, [filteredLeads, startIndex, endIndex]);
+
+  const getPageNumbers = () => {
+    if (totalPages <= 5) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    if (safePage <= 3) {
+      return [1, 2, 3, 4, '...', totalPages];
+    }
+    if (safePage >= totalPages - 2) {
+      return [1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    }
+    return [1, '...', safePage - 1, safePage, safePage + 1, '...', totalPages];
+  };
+
+  useEffect(() => {
+    setPageSizeInput(String(pageSize));
+  }, [pageSize]);
+
+  useEffect(() => {
+    setPageInput(String(safePage));
+  }, [safePage]);
+
+  const handlePageSizeChange = (val: string) => {
+    setPageSizeInput(val);
+    const parsed = parseInt(val, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      setPageSize(Math.min(500, parsed));
+      setCurrentPage(1);
+    }
+  };
+
+  const handlePageSizeBlur = () => {
+    const parsed = parseInt(pageSizeInput, 10);
+    if (isNaN(parsed) || parsed <= 0) {
+      setPageSizeInput(String(pageSize));
+    } else {
+      const clamped = Math.min(500, Math.max(1, parsed));
+      setPageSize(clamped);
+      setPageSizeInput(String(clamped));
+      setCurrentPage(1);
+    }
+  };
+
+  const handlePageInputSubmit = (val: string) => {
+    const parsed = parseInt(val, 10);
+    if (!isNaN(parsed) && parsed >= 1 && parsed <= totalPages) {
+      setCurrentPage(parsed);
+      setPageInput(String(parsed));
+    } else {
+      setPageInput(String(safePage));
+    }
+  };
+
   return (
     <div className="space-y-5">
       {/* Mobile Feature Banner matching reference screen 2 */}
@@ -169,7 +249,7 @@ export function KycDirectoryView({
       </div>
 
       {/* Filter Toolbar */}
-      <div className="glass-surface rounded-2xl p-3 sm:p-4">
+      <div className="glass-surface rounded-2xl p-3 sm:p-4 relative z-30">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="inline-flex w-full sm:w-auto items-center rounded-xl border border-white/80 bg-emerald-950/[0.04] p-1">
             {(['all', 'customer', 'vendor'] as const).map((type) => (
@@ -189,33 +269,39 @@ export function KycDirectoryView({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-            <select
-              value={salespersonFilter}
-              onChange={(e) => setSalespersonFilter(e.target.value)}
-              aria-label="Filter by salesperson"
-              className="flex-1 sm:flex-none min-h-[40px] rounded-xl border border-white/85 bg-white/85 px-3 py-1.5 text-base sm:text-xs font-medium text-slate-700 focus:border-[#0D4F3C] focus:outline-none"
-            >
-              <option value="all">All Salespersons</option>
-              {salespersons.map((sp) => (
-                <option key={sp.id} value={sp.id}>
-                  {sp.name}
-                </option>
-              ))}
-            </select>
+            <div className="flex-1 sm:w-56 sm:flex-none">
+              <CustomSelect
+                ariaLabel="Filter by salesperson"
+                value={salespersonFilter}
+                onChange={setSalespersonFilter}
+                align="right"
+                options={[
+                  { value: 'all', label: 'All Salespersons' },
+                  ...salespersons.map((sp) => ({ value: sp.id, label: sp.name })),
+                ]}
+                placeholder="All Salespersons"
+                buttonClassName="min-h-[40px] border-white/85 bg-white/85 text-xs shadow-xs"
+              />
+            </div>
 
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value as 'all' | SalespersonCategory)}
-              aria-label="Filter by salesperson category"
-              className="flex-1 sm:flex-none min-h-[40px] rounded-xl border border-white/85 bg-white/85 px-3 py-1.5 text-base sm:text-xs font-medium text-slate-700 focus:border-[#0D4F3C] focus:outline-none"
-            >
-              <option value="all">All Categories</option>
-              {SALESPERSON_CATEGORIES.filter((cat) => cat.value !== 'ADMIN').map((cat) => (
-                <option key={cat.value} value={cat.value}>
-                  {cat.label} — {cat.fullTitle}
-                </option>
-              ))}
-            </select>
+            <div className="flex-1 sm:w-48 sm:flex-none">
+              <CustomSelect
+                ariaLabel="Filter by salesperson category"
+                value={categoryFilter}
+                onChange={(val) => setCategoryFilter(val as 'all' | SalespersonCategory)}
+                align="right"
+                options={[
+                  { value: 'all', label: 'All Categories' },
+                  ...SALESPERSON_CATEGORIES.filter((cat) => cat.value !== 'ADMIN').map((cat) => ({
+                    value: cat.value,
+                    label: `${cat.label} — ${cat.fullTitle}`,
+                    badge: cat.label,
+                  })),
+                ]}
+                placeholder="All Categories"
+                buttonClassName="min-h-[40px] border-white/85 bg-white/85 text-xs shadow-xs"
+              />
+            </div>
 
             {hasActiveFilters && (
               <button
@@ -232,7 +318,7 @@ export function KycDirectoryView({
 
       {/* Empty State */}
       {filteredLeads.length === 0 ? (
-        <div className="glass-surface rounded-2xl p-10 text-center">
+        <div className="glass-surface rounded-2xl p-10 text-center relative z-10">
           <p className="text-sm font-semibold text-slate-900">
             {totalLeadsCount === 0 ? 'No KYC records added yet' : 'No matching records found'}
           </p>
@@ -259,82 +345,18 @@ export function KycDirectoryView({
       ) : (
         <>
           {/* Mobile Deal-Style Cards */}
-          <div className="md:hidden space-y-3">
-            {filteredLeads.map((lead) => {
-              const gstCheck = validateGstin(lead.gstin);
-              return (
-                <button
-                  key={lead.id}
-                  type="button"
-                  onClick={() => onOpenLead(lead)}
-                  className="w-full rounded-2xl bg-white border border-slate-200/80 p-4 text-left shadow-xs active:scale-[0.99] transition-transform"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-display text-sm font-bold text-slate-900 truncate">
-                        {lead.companyName}
-                      </div>
-                      <div className="mt-0.5 text-xs text-slate-500 truncate">
-                        {lead.industry} · {lead.city}, {lead.state}
-                      </div>
-                    </div>
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-[#0D4F3C] shrink-0">
-                      <ArrowUpRight className="h-4 w-4" />
-                    </span>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                    <div className="min-w-0">
-                      <div className="text-[10px] text-slate-400">GSTIN</div>
-                      <div className="font-mono font-semibold text-slate-800 truncate tabular-nums">
-                        {lead.gstin}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-slate-400">Branches</div>
-                      <div className="font-mono font-semibold text-slate-900 tabular-nums">
-                        {lead.branchCount}
-                      </div>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] text-slate-400">Manager</div>
-                      <div className="font-medium text-slate-800 truncate">
-                        {lead.managerName || '—'}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className={`h-full rounded-full ${
-                        gstCheck.valid ? 'bg-[#A3F046]' : 'bg-amber-400'
-                      }`}
-                      style={{ width: gstCheck.valid ? '78%' : '45%' }}
-                    />
-                  </div>
-
-                  <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                    <span className="inline-flex items-center gap-1 font-mono tabular-nums">
-                      <Phone className="h-3 w-3 text-[#0D4F3C]" />
-                      {lead.managerPhone || '—'}
-                    </span>
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 font-semibold shrink-0 ${
-                        lead.entityType === 'customer'
-                          ? 'bg-[#0D4F3C] text-white'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {lead.entityType === 'customer' ? 'Customer' : 'Vendor'}
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
+          <div className="md:hidden space-y-3 relative z-10">
+            {paginatedLeads.map((lead) => (
+              <KycCompanyCard
+                key={lead.id}
+                lead={lead}
+                onClick={onOpenLead}
+              />
+            ))}
           </div>
 
           {/* Desktop Table */}
-          <div className="hidden md:block glass-surface rounded-2xl overflow-hidden">
+          <div className="hidden md:block glass-surface rounded-2xl overflow-hidden relative z-10">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-sm">
                 <thead>
@@ -349,7 +371,8 @@ export function KycDirectoryView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200/70">
-                  {filteredLeads.map((lead) => {
+                  {paginatedLeads.map((lead) => {
+                    const unregistered = isUnregisteredGstin(lead.gstin);
                     const gstCheck = validateGstin(lead.gstin);
                     return (
                       <tr
@@ -384,14 +407,22 @@ export function KycDirectoryView({
 
                         <td className="py-3.5 px-4 whitespace-nowrap">
                           <div className="font-mono text-xs font-medium text-slate-800 tabular-nums">
-                            {lead.gstin}
+                            {unregistered ? lead.gstin || 'URP' : lead.gstin}
                           </div>
                           <div
                             className={`mt-0.5 text-[11px] ${
-                              gstCheck.valid ? 'text-emerald-700' : 'text-rose-700'
+                              unregistered
+                                ? 'text-slate-500 font-medium'
+                                : gstCheck.valid
+                                  ? 'text-emerald-700'
+                                  : 'text-rose-700'
                             }`}
                           >
-                            {gstCheck.valid ? gstCheck.stateName : 'Check GSTIN'}
+                            {unregistered
+                              ? 'Unregistered (No GST)'
+                              : gstCheck.valid
+                                ? gstCheck.stateName
+                                : 'Check GSTIN'}
                           </div>
                         </td>
 
@@ -432,6 +463,137 @@ export function KycDirectoryView({
               </table>
             </div>
           </div>
+
+          {/* Pagination Controls */}
+          {totalRecords > 0 && (
+            <div className="glass-surface rounded-2xl px-4 sm:px-5 py-3 flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-slate-600 relative z-10 shadow-xs">
+              {/* Left Side: Records summary + Manual Rows Input + Presets */}
+              <div className="flex items-center gap-2.5 flex-wrap justify-center sm:justify-start">
+                <span>
+                  Showing <strong className="font-semibold text-slate-900">{startIndex + 1}</strong> to{' '}
+                  <strong className="font-semibold text-slate-900">{endIndex}</strong> of{' '}
+                  <strong className="font-semibold text-slate-900">{totalRecords}</strong> records
+                </span>
+
+                <span className="text-slate-300 hidden sm:inline">|</span>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-500 font-medium">Rows:</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={pageSizeInput}
+                    onChange={(e) => handlePageSizeChange(e.target.value)}
+                    onBlur={handlePageSizeBlur}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
+                    className="h-8 w-14 rounded-lg border border-slate-300 bg-white px-1 text-center font-mono text-xs font-bold text-slate-900 shadow-2xs hover:border-[#0D4F3C] focus:border-[#0D4F3C] focus:outline-none focus:ring-2 focus:ring-[#0D4F3C]/20 transition-colors"
+                    title="Enter custom rows per page"
+                    placeholder="10"
+                  />
+                  <div className="inline-flex items-center gap-1">
+                    {[10, 25, 50].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          setPageSize(preset);
+                          setPageSizeInput(String(preset));
+                          setCurrentPage(1);
+                        }}
+                        className={`h-7 px-2 rounded-lg text-[11px] font-semibold transition-all ${
+                          pageSize === preset
+                            ? 'bg-[#0D4F3C] text-white shadow-2xs'
+                            : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Side: Page navigation + Manual Page jump */}
+              <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-end">
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-1.5 mr-1">
+                    <span className="text-slate-500 font-medium hidden sm:inline">Page:</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={totalPages}
+                      value={pageInput}
+                      onChange={(e) => setPageInput(e.target.value)}
+                      onBlur={() => handlePageInputSubmit(pageInput)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handlePageInputSubmit(pageInput);
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
+                      className="h-8 w-12 rounded-lg border border-slate-300 bg-white px-1 text-center font-mono text-xs font-bold text-slate-900 shadow-2xs hover:border-[#0D4F3C] focus:border-[#0D4F3C] focus:outline-none focus:ring-2 focus:ring-[#0D4F3C]/20 transition-colors"
+                      title="Type page number to jump directly"
+                    />
+                    <span className="text-slate-500">/ {totalPages}</span>
+                  </div>
+                )}
+
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={safePage === 1}
+                      className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1 shadow-2xs"
+                      title="Previous page"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Prev</span>
+                    </button>
+
+                    <div className="flex items-center gap-1">
+                      {getPageNumbers().map((num, idx) =>
+                        num === '...' ? (
+                          <span key={`dots-${idx}`} className="px-1 text-slate-400 select-none">
+                            …
+                          </span>
+                        ) : (
+                          <button
+                            key={`page-${num}`}
+                            type="button"
+                            onClick={() => setCurrentPage(Number(num))}
+                            className={`h-8 min-w-[32px] rounded-lg px-2 text-xs font-semibold transition-all ${
+                              safePage === num
+                                ? 'bg-[#0D4F3C] text-white shadow-xs'
+                                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 shadow-2xs'
+                            }`}
+                          >
+                            {num}
+                          </button>
+                        )
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={safePage === totalPages}
+                      className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1 shadow-2xs"
+                      title="Next page"
+                    >
+                      <span className="hidden sm:inline">Next</span>
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

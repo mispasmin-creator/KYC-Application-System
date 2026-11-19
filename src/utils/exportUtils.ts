@@ -1,4 +1,5 @@
 import { KycLead } from '../types/kyc';
+import { formatSheetTimestamp } from './validators';
 
 function escapeCsvCell(value: string | number | undefined | null): string {
   const str = String(value ?? '');
@@ -60,8 +61,8 @@ export function exportLeadsToCsv(leads: KycLead[], filenamePrefix = 'kyc-system-
       lead.mmName,
       lead.tseName,
       lead.notes,
-      lead.createdAt,
-      lead.updatedAt,
+      formatSheetTimestamp(lead.createdAt),
+      formatSheetTimestamp(lead.updatedAt || lead.createdAt),
     ].map(escapeCsvCell);
   });
 

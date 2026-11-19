@@ -35,7 +35,11 @@ export function ConfirmActionModal({
       aria-modal="true"
       aria-label={title}
     >
-      <div className="w-full sm:max-w-md overflow-hidden rounded-t-3xl sm:rounded-2xl border border-white/90 bg-[#F4F9F9] shadow-[0_24px_60px_-15px_rgba(15,23,42,0.35)] pb-safe">
+      <div className="w-full sm:max-w-md overflow-hidden rounded-t-3xl sm:rounded-2xl border border-white/90 bg-[#F4F9F9] shadow-[0_24px_60px_-15px_rgba(15,23,42,0.35)] pb-safe animate-in fade-in slide-in-from-bottom-4 duration-200">
+        {/* Mobile Drag Indicator */}
+        <div className="sm:hidden flex justify-center pt-2.5 pb-1 bg-white">
+          <div className="h-1.5 w-12 rounded-full bg-slate-300" />
+        </div>
         <div className="flex items-center justify-between border-b border-slate-200/80 bg-white px-5 py-4">
           <div className="flex items-center gap-2.5 min-w-0">
             <div

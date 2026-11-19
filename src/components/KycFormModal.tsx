@@ -10,11 +10,14 @@ import {
 } from '../types/kyc';
 import { buildSalesOptionsByCategory } from '../utils/masterTeamUtils';
 import {
+  GST_STATE_CODES,
+  isUnregisteredGstin,
   isValidIndianPhone,
   isValidPincode,
   normalizeIndianPhone,
   validateGstin,
 } from '../utils/validators';
+import { CustomSelect } from './CustomSelect';
 
 interface KycFormModalProps {
   isOpen: boolean;
@@ -67,6 +70,7 @@ export function KycFormModal({
   const [mmSubmitted, setMmSubmitted] = useState(false);
 
   const [entityType, setEntityType] = useState<EntityType>('customer');
+  const [hasGstin, setHasGstin] = useState(true);
   const [companyName, setCompanyName] = useState('');
   const [industry, setIndustry] = useState('');
   const [gstin, setGstin] = useState('');
@@ -133,10 +137,12 @@ export function KycFormModal({
       setGmSubmitted(Boolean(editingLead.gmName));
       setMmSubmitted(Boolean(editingLead.mmName));
 
+      const isUnreg = isUnregisteredGstin(editingLead.gstin);
+      setHasGstin(!isUnreg);
       setEntityType(editingLead.entityType);
       setCompanyName(editingLead.companyName);
       setIndustry(editingLead.industry);
-      setGstin(editingLead.gstin);
+      setGstin(isUnreg ? '' : editingLead.gstin);
       setAddress(editingLead.address);
       setCity(editingLead.city);
       setStateName(editingLead.state);
@@ -183,6 +189,7 @@ export function KycFormModal({
       setGmSubmitted(false);
       setMmSubmitted(false);
       setEntityType('customer');
+      setHasGstin(true);
       setCompanyName('');
       setIndustry('');
       setGstin('');
@@ -202,7 +209,10 @@ export function KycFormModal({
     setErrors({});
     setGstLookupState('idle');
     setGstLookupMessage('');
-    lastLookedUpGstinRef.current = editingLead ? editingLead.gstin.toUpperCase() : '';
+    lastLookedUpGstinRef.current =
+      editingLead && !isUnregisteredGstin(editingLead.gstin)
+        ? editingLead.gstin.toUpperCase()
+        : '';
   }, [isOpen, editingLead, activeUser, membersByCategory]);
 
   // If Master sheet finishes loading after modal opens, upgrade untouched empty custom inputs to dropdowns
@@ -286,11 +296,8 @@ export function KycFormModal({
         setStateName(result.state);
       }
       if (!result.configured) {
-        setGstLookupState('not_configured');
-        setGstLookupMessage(
-          result.message ||
-            'State auto-detected. Add GSTIN_API_KEY in .env to auto-fetch full registered address.'
-        );
+        setGstLookupState('idle');
+        setGstLookupMessage('');
         return;
       }
       if (!result.found) {
@@ -368,7 +375,7 @@ export function KycFormModal({
     const nextErrors: Record<string, string> = {};
 
     if (companyName.trim().length < 2) nextErrors.companyName = 'Company legal name is required.';
-    if (!gstCheck.valid) nextErrors.gstin = gstCheck.message;
+    if (hasGstin && !gstCheck.valid) nextErrors.gstin = gstCheck.message;
     if (address.trim().length < 5) nextErrors.address = 'Registered address is required.';
     if (city.trim().length < 2) nextErrors.city = 'City is required.';
     if (stateName.trim().length < 2) nextErrors.stateName = 'State is required.';
@@ -412,7 +419,7 @@ export function KycFormModal({
         entityType,
         companyName: companyName.trim(),
         industry: industry.trim() || 'General Commercial',
-        gstin: gstCheck.normalized,
+        gstin: hasGstin ? gstCheck.normalized : 'URP',
         address: address.trim(),
         city: city.trim(),
         state: stateName.trim(),
@@ -446,7 +453,7 @@ export function KycFormModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 backdrop-blur-xs p-3 sm:p-6"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs p-0 sm:p-6"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -454,15 +461,20 @@ export function KycFormModal({
       aria-modal="true"
       aria-label={editingLead ? 'Edit KYC Profile' : 'New KYC Entry'}
     >
-      <div className="flex max-h-[92dvh] sm:max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-[#EEF5F5] border border-white/90 shadow-[0_24px_60px_-15px_rgba(15,23,42,0.35)]">
-        <div className="flex items-center justify-between border-b border-slate-200/80 bg-white/95 backdrop-blur-md px-5 sm:px-6 py-3.5 sm:py-4">
+      <div className="flex max-h-[94dvh] sm:max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl sm:rounded-3xl bg-[#EEF5F5] border border-white/90 shadow-[0_24px_60px_-15px_rgba(15,23,42,0.35)] animate-in fade-in slide-in-from-bottom-4 duration-200">
+        {/* Mobile Drag Indicator */}
+        <div className="sm:hidden flex justify-center pt-2.5 pb-1 bg-white/95">
+          <div className="h-1.5 w-12 rounded-full bg-slate-300" />
+        </div>
+
+        <div className="flex items-center justify-between border-b border-slate-200/80 bg-white/95 backdrop-blur-md px-4 sm:px-6 py-3.5 sm:py-4">
           <h2 className="font-display text-lg font-bold text-slate-900">
             {editingLead ? 'Edit KYC Profile' : 'New KYC Entry'}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+            className="flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition-colors"
             aria-label="Close form"
           >
             <X className="h-5 w-5" />
@@ -472,7 +484,7 @@ export function KycFormModal({
         <form
           ref={formRef}
           onSubmit={handleSubmit}
-          className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 space-y-5"
+          className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 pb-36 sm:pb-44 space-y-5"
         >
           {/* Company & GST Details */}
           <section className={SECTION_CARD_CLASS}>
@@ -529,66 +541,110 @@ export function KycFormModal({
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1.5">
-                GSTIN (15 Characters) *
+            {/* GST Available / Registered Toggle */}
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-slate-50/70 px-4 py-2.5">
+              <label className="block text-xs font-medium text-slate-700">
+                GST Registered? *
               </label>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <input
-                  type="text"
-                  value={gstin}
-                  onChange={(e) => handleGstinChange(e.target.value)}
-                  placeholder="27AABCU9603R1ZM"
-                  maxLength={15}
-                  className={`${INPUT_CLASS} font-mono uppercase flex-1`}
-                />
+
+              <div className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-2xs">
                 <button
                   type="button"
-                  onClick={() => void handleLookupGstin()}
-                  disabled={!gstCheck.valid || gstLookupState === 'loading'}
-                  className="min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0D4F3C] hover:border-[#0D4F3C] hover:bg-[#E8F6EE]/60 disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap shrink-0 transition-colors"
+                  onClick={() => setHasGstin(true)}
+                  className={`min-h-[34px] rounded-lg px-4 py-1 text-xs font-semibold transition-all ${
+                    hasGstin
+                      ? 'bg-[#0D4F3C] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
                 >
-                  {gstLookupState === 'loading' ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Search className="h-3.5 w-3.5" />
-                  )}
-                  <span>{gstLookupState === 'loading' ? 'Fetching...' : 'Fetch GST Address'}</span>
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHasGstin(false);
+                    setGstin('');
+                    setGstLookupState('idle');
+                    setGstLookupMessage('');
+                    setErrors((prev) => {
+                      const copy = { ...prev };
+                      delete copy.gstin;
+                      return copy;
+                    });
+                  }}
+                  className={`min-h-[34px] rounded-lg px-4 py-1 text-xs font-semibold transition-all ${
+                    !hasGstin
+                      ? 'bg-[#0D4F3C] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  No
                 </button>
               </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                {gstCheck.valid ? (
-                  <span className="inline-flex items-center gap-1 text-emerald-700">
-                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                    <span>{gstCheck.message}</span>
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-slate-500">
-                    {errors.gstin ? (
-                      <>
-                        <AlertCircle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
-                        <span className="text-rose-700">{errors.gstin}</span>
-                      </>
-                    ) : (
-                      <span>{gstin ? gstCheck.message : 'Format: 27AABCU9603R1ZM'}</span>
-                    )}
-                  </span>
-                )}
-                {gstLookupMessage && gstLookupState !== 'idle' && (
-                  <span
-                    className={`text-xs ${
-                      gstLookupState === 'filled'
-                        ? 'font-medium text-emerald-700'
-                        : gstLookupState === 'error'
-                          ? 'text-rose-700'
-                          : 'text-slate-500'
-                    }`}
-                  >
-                    · {gstLookupMessage}
-                  </span>
-                )}
-              </div>
             </div>
+
+            {hasGstin && (
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1.5">
+                  GSTIN (15 Characters) *
+                </label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    type="text"
+                    value={gstin}
+                    onChange={(e) => handleGstinChange(e.target.value)}
+                    placeholder="27AABCU9603R1ZM"
+                    maxLength={15}
+                    className={`${INPUT_CLASS} font-mono uppercase flex-1`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleLookupGstin()}
+                    disabled={!gstCheck.valid || gstLookupState === 'loading'}
+                    className="min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0D4F3C] hover:border-[#0D4F3C] hover:bg-[#E8F6EE]/60 disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap shrink-0 transition-colors"
+                  >
+                    {gstLookupState === 'loading' ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Search className="h-3.5 w-3.5" />
+                    )}
+                    <span>{gstLookupState === 'loading' ? 'Fetching...' : 'Fetch GST Address'}</span>
+                  </button>
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                  {gstCheck.valid ? (
+                    <span className="inline-flex items-center gap-1 text-emerald-700">
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                      <span>{gstCheck.message}</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-slate-500">
+                      {errors.gstin ? (
+                        <>
+                          <AlertCircle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+                          <span className="text-rose-700">{errors.gstin}</span>
+                        </>
+                      ) : (
+                        <span>{gstin ? gstCheck.message : 'Format: 27AABCU9603R1ZM'}</span>
+                      )}
+                    </span>
+                  )}
+                  {gstLookupMessage && gstLookupState !== 'idle' && (
+                    <span
+                      className={`text-xs ${
+                        gstLookupState === 'filled'
+                          ? 'font-medium text-emerald-700'
+                          : gstLookupState === 'error'
+                            ? 'text-rose-700'
+                            : 'text-slate-500'
+                      }`}
+                    >
+                      · {gstLookupMessage}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1.5">
@@ -620,11 +676,17 @@ export function KycFormModal({
                 <label className="block text-xs font-medium text-slate-700 mb-1.5">State *</label>
                 <input
                   type="text"
+                  list="kyc-indian-states-list"
                   value={stateName}
                   onChange={(e) => setStateName(e.target.value)}
                   placeholder="Maharashtra"
                   className={INPUT_CLASS}
                 />
+                <datalist id="kyc-indian-states-list">
+                  {Object.values(GST_STATE_CODES).map((st) => (
+                    <option key={st} value={st} />
+                  ))}
+                </datalist>
                 {errors.stateName && (
                   <p className="mt-1 text-xs text-rose-700">{errors.stateName}</p>
                 )}
@@ -757,31 +819,42 @@ export function KycFormModal({
               />
             </div>
 
-            <div className="space-y-2.5">
+            <div className="space-y-3">
               {branches.map((branch, idx) => (
                 <div
                   key={branch.id}
-                  className="grid grid-cols-1 gap-2.5 sm:grid-cols-12 items-center rounded-xl border border-slate-200 bg-slate-50/80 p-3"
+                  className="rounded-xl border border-slate-200/90 bg-slate-50/80 p-3 space-y-2.5 shadow-2xs"
                 >
-                  <div className="sm:col-span-5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs font-bold text-[#0D4F3C] uppercase tracking-wide">
+                      Branch No. {idx + 1}
+                    </span>
+                    {branches.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveBranch(branch.id)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-700 transition-colors"
+                        aria-label="Remove branch"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     <input
                       type="text"
                       value={branch.branchName}
                       onChange={(e) => handleBranchChange(branch.id, 'branchName', e.target.value)}
-                      placeholder={`Branch ${idx + 1} Name / Unit`}
+                      placeholder={`Branch Name / Unit (e.g. Plant 1)`}
                       className="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-base sm:text-xs text-slate-900 placeholder:text-slate-400 focus:border-[#0D4F3C] focus:outline-none focus:ring-2 focus:ring-[#0D4F3C]/20"
                     />
-                  </div>
-                  <div className="sm:col-span-3">
                     <input
                       type="text"
                       value={branch.city}
                       onChange={(e) => handleBranchChange(branch.id, 'city', e.target.value)}
-                      placeholder="City"
+                      placeholder="City (e.g. Raipur)"
                       className="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-base sm:text-xs text-slate-900 placeholder:text-slate-400 focus:border-[#0D4F3C] focus:outline-none focus:ring-2 focus:ring-[#0D4F3C]/20"
                     />
-                  </div>
-                  <div className="sm:col-span-3">
                     <input
                       type="tel"
                       value={branch.contactPhone}
@@ -791,17 +864,6 @@ export function KycFormModal({
                       placeholder="Branch Phone"
                       className="w-full min-h-[42px] rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-base sm:text-xs text-slate-900 placeholder:text-slate-400 focus:border-[#0D4F3C] focus:outline-none focus:ring-2 focus:ring-[#0D4F3C]/20"
                     />
-                  </div>
-                  <div className="sm:col-span-1 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveBranch(branch.id)}
-                      disabled={branches.length <= 1}
-                      className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-30"
-                      aria-label="Remove branch"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
                   </div>
                 </div>
               ))}
@@ -856,44 +918,47 @@ export function KycFormModal({
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                      {membersByCategory.GM.length > 0 ? (
-                        <select
-                          aria-label="Select General Manager"
-                          value={gmId}
-                          onChange={(e) => {
-                            setGmId(e.target.value);
-                            setErrors((prev) => ({ ...prev, attribution: '' }));
-                          }}
-                          className={`${INPUT_CLASS} flex-1`}
-                        >
-                          <option value="">Select General Manager</option>
-                          {membersByCategory.GM.map((member) => (
-                            <option key={member.id} value={member.id}>
-                              {member.meta ? `${member.name} (${member.meta})` : member.name}
-                            </option>
-                          ))}
-                          <option value="__custom__">Enter GM name manually...</option>
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          value={gmCustomName}
-                          onChange={(e) => {
-                            setGmId('__custom__');
-                            setGmCustomName(e.target.value);
-                            setErrors((prev) => ({ ...prev, attribution: '' }));
-                          }}
-                          placeholder="Enter General Manager name"
-                          className={`${INPUT_CLASS} flex-1`}
-                        />
-                      )}
+                  <div className="space-y-2.5">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                      <div className="flex-1 min-w-0">
+                        {membersByCategory.GM.length > 0 ? (
+                          <CustomSelect
+                            id="select-gm"
+                            ariaLabel="Select General Manager"
+                            value={gmId}
+                            onChange={(val) => {
+                              setGmId(val);
+                              setErrors((prev) => ({ ...prev, attribution: '' }));
+                            }}
+                            options={[
+                              ...membersByCategory.GM.map((member) => ({
+                                value: member.id,
+                                label: member.name,
+                                meta: member.meta,
+                              })),
+                              { value: '__custom__', label: 'Enter GM name manually...' },
+                            ]}
+                            placeholder="Select General Manager"
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            value={gmCustomName}
+                            onChange={(e) => {
+                              setGmId('__custom__');
+                              setGmCustomName(e.target.value);
+                              setErrors((prev) => ({ ...prev, attribution: '' }));
+                            }}
+                            placeholder="Enter General Manager name"
+                            className={`${INPUT_CLASS} flex-1`}
+                          />
+                        )}
+                      </div>
                       <button
                         type="button"
                         onClick={handleConfirmGm}
                         disabled={!resolvedGmName}
-                        className="min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0D4F3C] px-4 py-2 text-xs font-semibold text-white hover:bg-[#093b2d] disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
+                        className="min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0D4F3C] px-5 py-2 text-xs font-semibold text-white hover:bg-[#093b2d] disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap shrink-0 transition-all shadow-2xs"
                       >
                         <span>Add GM</span>
                         <ArrowRight className="h-3.5 w-3.5" />
@@ -943,44 +1008,47 @@ export function KycFormModal({
                       </button>
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                        {membersByCategory.MM.length > 0 ? (
-                          <select
-                            aria-label="Select Marketing Manager"
-                            value={mmId}
-                            onChange={(e) => {
-                              setMmId(e.target.value);
-                              setErrors((prev) => ({ ...prev, attribution: '' }));
-                            }}
-                            className={`${INPUT_CLASS} flex-1`}
-                          >
-                            <option value="">Select Marketing Manager</option>
-                            {membersByCategory.MM.map((member) => (
-                              <option key={member.id} value={member.id}>
-                                {member.meta ? `${member.name} (${member.meta})` : member.name}
-                              </option>
-                            ))}
-                            <option value="__custom__">Enter MM name manually...</option>
-                          </select>
-                        ) : (
-                          <input
-                            type="text"
-                            value={mmCustomName}
-                            onChange={(e) => {
-                              setMmId('__custom__');
-                              setMmCustomName(e.target.value);
-                              setErrors((prev) => ({ ...prev, attribution: '' }));
-                            }}
-                            placeholder="Enter Marketing Manager name"
-                            className={`${INPUT_CLASS} flex-1`}
-                          />
-                        )}
+                    <div className="space-y-2.5">
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                        <div className="flex-1 min-w-0">
+                          {membersByCategory.MM.length > 0 ? (
+                            <CustomSelect
+                              id="select-mm"
+                              ariaLabel="Select Marketing Manager"
+                              value={mmId}
+                              onChange={(val) => {
+                                setMmId(val);
+                                setErrors((prev) => ({ ...prev, attribution: '' }));
+                              }}
+                              options={[
+                                ...membersByCategory.MM.map((member) => ({
+                                  value: member.id,
+                                  label: member.name,
+                                  meta: member.meta,
+                                })),
+                                { value: '__custom__', label: 'Enter MM name manually...' },
+                              ]}
+                              placeholder="Select Marketing Manager"
+                            />
+                          ) : (
+                            <input
+                              type="text"
+                              value={mmCustomName}
+                              onChange={(e) => {
+                                setMmId('__custom__');
+                                setMmCustomName(e.target.value);
+                                setErrors((prev) => ({ ...prev, attribution: '' }));
+                              }}
+                              placeholder="Enter Marketing Manager name"
+                              className={`${INPUT_CLASS} flex-1`}
+                            />
+                          )}
+                        </div>
                         <button
                           type="button"
                           onClick={handleConfirmMm}
                           disabled={!resolvedMmName}
-                          className="min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0D4F3C] px-4 py-2 text-xs font-semibold text-white hover:bg-[#093b2d] disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
+                          className="min-h-[44px] inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0D4F3C] px-5 py-2 text-xs font-semibold text-white hover:bg-[#093b2d] disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap shrink-0 transition-all shadow-2xs"
                         >
                           <span>Add MM</span>
                           <ArrowRight className="h-3.5 w-3.5" />
@@ -1005,29 +1073,30 @@ export function KycFormModal({
 
               {/* Territory Sales Executive (TSE) — shown after MM is added */}
               {gmSubmitted && resolvedGmName && mmSubmitted && resolvedMmName && (
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   <label className="block text-xs font-medium text-slate-700 mb-1.5">
                     Territory Sales Executive (TSE) *
                   </label>
                   {membersByCategory.TSE.length > 0 ? (
                     <>
-                      <select
-                        aria-label="Select Territory Sales Executive"
+                      <CustomSelect
+                        id="select-tse"
+                        ariaLabel="Select Territory Sales Executive"
                         value={tseId}
-                        onChange={(e) => {
-                          setTseId(e.target.value);
+                        onChange={(val) => {
+                          setTseId(val);
                           setErrors((prev) => ({ ...prev, attribution: '' }));
                         }}
-                        className={INPUT_CLASS}
-                      >
-                        <option value="">Select Territory Sales Executive</option>
-                        {membersByCategory.TSE.map((member) => (
-                          <option key={member.id} value={member.id}>
-                            {member.meta ? `${member.name} (${member.meta})` : member.name}
-                          </option>
-                        ))}
-                        <option value="__custom__">Enter TSE name manually...</option>
-                      </select>
+                        options={[
+                          ...membersByCategory.TSE.map((member) => ({
+                            value: member.id,
+                            label: member.name,
+                            meta: member.meta,
+                          })),
+                          { value: '__custom__', label: 'Enter TSE name manually...' },
+                        ]}
+                        placeholder="Select Territory Sales Executive"
+                      />
                       {tseId === '__custom__' && (
                         <input
                           type="text"

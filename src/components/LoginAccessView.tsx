@@ -23,6 +23,7 @@ import {
   TeamMember,
 } from '../types/kyc';
 import { formatCategoryBadge, isProtectedAdminMember } from '../utils/teamAccessUtils';
+import { CustomSelect } from './CustomSelect';
 
 interface LoginAccessViewProps {
   teamMembers: TeamMember[];
@@ -633,7 +634,7 @@ export function LoginAccessView({
       {/* Edit User Modal */}
       {editingMember && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 backdrop-blur-xs p-3 sm:p-4"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs p-0 sm:p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setEditingMember(null);
           }}
@@ -641,8 +642,12 @@ export function LoginAccessView({
           aria-modal="true"
           aria-label="Edit Login Access"
         >
-          <div className="w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-3xl border border-white/90 bg-[#EEF5F5] shadow-[0_24px_60px_-15px_rgba(15,23,42,0.35)]">
-            <div className="flex items-center justify-between border-b border-slate-200/80 bg-white/90 px-5 sm:px-6 py-4">
+          <div className="w-full max-w-lg max-h-[94dvh] sm:max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl border border-white/90 bg-[#EEF5F5] shadow-[0_24px_60px_-15px_rgba(15,23,42,0.35)] pb-safe animate-in fade-in slide-in-from-bottom-4 duration-200">
+            {/* Mobile Drag Indicator */}
+            <div className="sm:hidden flex justify-center pt-2.5 pb-1 bg-white/90">
+              <div className="h-1.5 w-12 rounded-full bg-slate-300" />
+            </div>
+            <div className="flex items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 sm:px-6 py-3.5 sm:py-4">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-[#0D4F3C]" />
                 <h2 className="font-display text-base font-bold text-slate-900">
@@ -678,38 +683,40 @@ export function LoginAccessView({
                     <label className="block text-xs font-medium text-slate-700 mb-1.5">
                       Category *
                     </label>
-                    <select
+                    <CustomSelect
+                      ariaLabel="Category"
                       value={editCategory}
-                      onChange={(e) => {
-                        const nextCat = e.target.value as SalespersonCategory;
+                      onChange={(val) => {
+                        const nextCat = val as SalespersonCategory;
                         setEditCategory(nextCat);
                         if (nextCat === 'ADMIN') {
                           setEditAllowedPages([...DEFAULT_ALLOWED_PAGES]);
                         }
                       }}
-                      className={INPUT_CLASS}
-                    >
-                      {SALESPERSON_CATEGORIES.map((cat) => (
-                        <option key={cat.value} value={cat.value}>
-                          {cat.label} — {cat.fullTitle}
-                        </option>
-                      ))}
-                    </select>
+                      options={SALESPERSON_CATEGORIES.map((cat) => ({
+                        value: cat.value,
+                        label: `${cat.label} — ${cat.fullTitle}`,
+                        badge: cat.label,
+                      }))}
+                      placeholder="Select Category"
+                    />
                   </div>
 
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1.5">
                       Account Status
                     </label>
-                    <select
+                    <CustomSelect
+                      ariaLabel="Account Status"
                       value={editStatus}
                       disabled={editingMember.id === activeUser.id}
-                      onChange={(e) => setEditStatus(e.target.value as AccountStatus)}
-                      className={`${INPUT_CLASS} disabled:bg-slate-100 disabled:text-slate-500`}
-                    >
-                      <option value="active">Active</option>
-                      <option value="inactive">Deactivated</option>
-                    </select>
+                      onChange={(val) => setEditStatus(val as AccountStatus)}
+                      options={[
+                        { value: 'active', label: 'Active', badge: 'Active' },
+                        { value: 'inactive', label: 'Deactivated', badge: 'Inactive' },
+                      ]}
+                      placeholder="Select Status"
+                    />
                   </div>
                 </div>
 
@@ -829,7 +836,7 @@ export function LoginAccessView({
       {/* Add User Modal */}
       {isAddOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 backdrop-blur-xs p-3 sm:p-4"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs p-0 sm:p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setIsAddOpen(false);
           }}
@@ -837,8 +844,12 @@ export function LoginAccessView({
           aria-modal="true"
           aria-label="Add Login User"
         >
-          <div className="w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-3xl border border-white/90 bg-[#EEF5F5] shadow-[0_24px_60px_-15px_rgba(15,23,42,0.35)]">
-            <div className="flex items-center justify-between border-b border-slate-200/80 bg-white/90 px-5 sm:px-6 py-4">
+          <div className="w-full max-w-lg max-h-[94dvh] sm:max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl border border-white/90 bg-[#EEF5F5] shadow-[0_24px_60px_-15px_rgba(15,23,42,0.35)] pb-safe animate-in fade-in slide-in-from-bottom-4 duration-200">
+            {/* Mobile Drag Indicator */}
+            <div className="sm:hidden flex justify-center pt-2.5 pb-1 bg-white/90">
+              <div className="h-1.5 w-12 rounded-full bg-slate-300" />
+            </div>
+            <div className="flex items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 sm:px-6 py-3.5 sm:py-4">
               <h2 className="font-display text-base font-bold text-slate-900">
                 Add New Login Account
               </h2>
@@ -872,37 +883,39 @@ export function LoginAccessView({
                     <label className="block text-xs font-medium text-slate-700 mb-1.5">
                       Category *
                     </label>
-                    <select
+                    <CustomSelect
+                      ariaLabel="New Category"
                       value={newCategory}
-                      onChange={(e) => {
-                        const nextCat = e.target.value as SalespersonCategory;
+                      onChange={(val) => {
+                        const nextCat = val as SalespersonCategory;
                         setNewCategory(nextCat);
                         if (nextCat === 'ADMIN') {
                           setNewAllowedPages([...DEFAULT_ALLOWED_PAGES]);
                         }
                       }}
-                      className={INPUT_CLASS}
-                    >
-                      {SALESPERSON_CATEGORIES.map((cat) => (
-                        <option key={cat.value} value={cat.value}>
-                          {cat.label} — {cat.fullTitle}
-                        </option>
-                      ))}
-                    </select>
+                      options={SALESPERSON_CATEGORIES.map((cat) => ({
+                        value: cat.value,
+                        label: `${cat.label} — ${cat.fullTitle}`,
+                        badge: cat.label,
+                      }))}
+                      placeholder="Select Category"
+                    />
                   </div>
 
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1.5">
                       Initial Status
                     </label>
-                    <select
+                    <CustomSelect
+                      ariaLabel="Initial Status"
                       value={newStatus}
-                      onChange={(e) => setNewStatus(e.target.value as AccountStatus)}
-                      className={INPUT_CLASS}
-                    >
-                      <option value="active">Active</option>
-                      <option value="inactive">Deactivated</option>
-                    </select>
+                      onChange={(val) => setNewStatus(val as AccountStatus)}
+                      options={[
+                        { value: 'active', label: 'Active', badge: 'Active' },
+                        { value: 'inactive', label: 'Deactivated', badge: 'Inactive' },
+                      ]}
+                      placeholder="Select Status"
+                    />
                   </div>
                 </div>
 

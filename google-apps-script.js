@@ -9,6 +9,19 @@ var KYC_HEADERS = [
   'GM Name', 'MM Name', 'TSE Name', 'Added By', 'Sales Role', 'Notes', 'Created At', 'Updated At'
 ];
 
+function formatSheetDate(input) {
+  if (!input) input = new Date();
+  const d = input instanceof Date ? input : new Date(input);
+  const valid = isNaN(d.getTime()) ? new Date() : d;
+  const mm = String(valid.getMonth() + 1).padStart(2, '0');
+  const dd = String(valid.getDate()).padStart(2, '0');
+  const yyyy = valid.getFullYear();
+  const hh = String(valid.getHours()).padStart(2, '0');
+  const min = String(valid.getMinutes()).padStart(2, '0');
+  const ss = String(valid.getSeconds()).padStart(2, '0');
+  return mm + '/' + dd + '/' + yyyy + ' ' + hh + ':' + min + ':' + ss;
+}
+
 function leadToRowValues(lead) {
   return [
     lead.id || '',
@@ -33,8 +46,8 @@ function leadToRowValues(lead) {
     lead.salespersonName || '',
     lead.salespersonCategory === 'ADMIN' ? 'Admin' : (lead.salespersonCategory || ''),
     lead.notes || '',
-    lead.createdAt || '',
-    lead.updatedAt || ''
+    formatSheetDate(lead.createdAt),
+    formatSheetDate(lead.updatedAt || lead.createdAt)
   ];
 }
 
@@ -51,7 +64,7 @@ const ALL_PAGES = ['overview', 'directory', 'leaderboard', 'loginAccess'];
 
 function cellStr(val) {
   if (val === null || val === undefined) return '';
-  if (val instanceof Date) return val.toISOString();
+  if (val instanceof Date) return formatSheetDate(val);
   return String(val).trim();
 }
 
@@ -251,8 +264,8 @@ function leadToRow(lead) {
     lead.salespersonName || '',
     lead.salespersonCategory || 'TSE',
     lead.notes || '',
-    lead.createdAt || new Date().toISOString(),
-    lead.updatedAt || new Date().toISOString(),
+    formatSheetDate(lead.createdAt),
+    formatSheetDate(lead.updatedAt || lead.createdAt),
     lead.gmId || '',
     lead.mmId || '',
     lead.tseId || '',
@@ -334,7 +347,7 @@ function readWorkspaceData() {
     const city = r[6];
     const branches = parseBranches(r[10], city, rowNum);
     const parsedCount = Number(r[9]);
-    const nowIso = new Date().toISOString();
+    const nowFormatted = formatSheetDate();
 
     leads.push({
       id: r[0] || 'KYC-ROW-' + rowNum,
@@ -359,8 +372,8 @@ function readWorkspaceData() {
       salespersonName: r[19] || r[18] || '',
       salespersonCategory: normalizeCategory(r[20], ''),
       notes: r[21] || '',
-      createdAt: r[22] || nowIso,
-      updatedAt: r[23] || r[22] || nowIso,
+      createdAt: formatSheetDate(r[22] || nowFormatted),
+      updatedAt: formatSheetDate(r[23] || r[22] || nowFormatted),
       gmId: r[24] || '',
       mmId: r[25] || '',
       tseId: r[26] || '',
@@ -392,7 +405,27 @@ function jsonOut(obj) {
 
 function doGet() {
   try {
-    return jsonOut(readWorkspaceData());
+    try {
+      const cache = CacheService.getScriptCache();
+      const cached = cache.get('workspace_v1');
+      if (cached) {
+        return ContentService.createTextOutput(cached).setMimeType(
+          ContentService.MimeType.JSON
+        );
+      }
+    } catch (_) {}
+
+    const data = readWorkspaceData();
+    const jsonStr = JSON.stringify(data);
+    try {
+      if (jsonStr.length < 100000) {
+        CacheService.getScriptCache().put('workspace_v1', jsonStr, 60);
+      }
+    } catch (_) {}
+
+    return ContentService.createTextOutput(jsonStr).setMimeType(
+      ContentService.MimeType.JSON
+    );
   } catch (err) {
     return jsonOut({ error: err && err.message ? err.message : String(err) });
   }
@@ -400,6 +433,9 @@ function doGet() {
 
 function doPost(e) {
   try {
+    try {
+      CacheService.getScriptCache().remove('workspace_v1');
+    } catch (_) {}
     const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     const action = body.action;
     const { kycSheet, teamSheet } = ensureTabs();

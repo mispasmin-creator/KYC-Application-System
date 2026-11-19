@@ -171,7 +171,9 @@ export function Sidebar({
               </button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                   onCloseMobile();
                   onLogout();
                 }}
@@ -204,7 +206,9 @@ export function Sidebar({
               </div>
               <button
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                   onCloseMobile();
                   onLogout();
                 }}

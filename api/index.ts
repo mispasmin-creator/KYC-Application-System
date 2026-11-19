@@ -137,6 +137,9 @@ async function readBody(req: IncomingMessage & { body?: any }): Promise<any> {
   });
 }
 
+let apiWorkspaceCache: any = null;
+let apiWorkspaceCacheTime = 0;
+
 async function callAppsScript<T = any>(
   method: 'GET' | 'POST',
   payload?: Record<string, unknown>
@@ -268,6 +271,11 @@ export default async function handler(req: any, res: any) {
 
     // 3. Workspace Data (Leads, Team Members, Master Directory)
     if (routeIdentifier.includes('workspace')) {
+      if (apiWorkspaceCache && Date.now() - apiWorkspaceCacheTime < 15000) {
+        sendJson(res, 200, apiWorkspaceCache);
+        return;
+      }
+
       const scriptData = await callAppsScript<{
         leads?: any[];
         teamMembers?: any[];
@@ -275,11 +283,14 @@ export default async function handler(req: any, res: any) {
       }>('GET');
 
       if (scriptData && (scriptData.leads || scriptData.teamMembers || scriptData.masterTeam)) {
-        sendJson(res, 200, {
+        const payload = {
           leads: Array.isArray(scriptData.leads) ? scriptData.leads : [],
           teamMembers: Array.isArray(scriptData.teamMembers) ? scriptData.teamMembers : [],
           masterTeam: Array.isArray(scriptData.masterTeam) ? scriptData.masterTeam : [],
-        });
+        };
+        apiWorkspaceCache = payload;
+        apiWorkspaceCacheTime = Date.now();
+        sendJson(res, 200, payload);
         return;
       }
 
@@ -290,6 +301,7 @@ export default async function handler(req: any, res: any) {
 
     // 4. KYC Leads CRUD
     if (routeIdentifier.includes('leads')) {
+      apiWorkspaceCache = null;
       const body = await readBody(req);
       const urlId =
         extractIdFromUrl(matchedPath, 'leads') ||
@@ -320,6 +332,7 @@ export default async function handler(req: any, res: any) {
 
     // 5. Team Members CRUD
     if (routeIdentifier.includes('team')) {
+      apiWorkspaceCache = null;
       const body = await readBody(req);
       const urlId =
         extractIdFromUrl(matchedPath, 'team') ||

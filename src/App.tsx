@@ -17,6 +17,8 @@ import {
   deleteKycLead,
   deleteTeamMember,
   fetchWorkspaceData,
+  getCachedWorkspaceData,
+  setCachedWorkspaceData,
   updateKycLead,
   updateTeamMember,
 } from './services/workspaceApi';
@@ -31,7 +33,8 @@ import {
 } from './types/kyc';
 import { exportLeadsToCsv } from './utils/exportUtils';
 import { filterLeadsByQuery } from './utils/searchUtils';
-import { getAllowedPagesForUser, isProtectedAdminMember } from './utils/teamAccessUtils';
+import { filterLeadsForUser, getAllowedPagesForUser, isProtectedAdminMember } from './utils/teamAccessUtils';
+import { formatSheetTimestamp } from './utils/validators';
 
 const NAV_TITLES: Record<NavSection, string> = {
   overview: 'Dashboard',
@@ -70,6 +73,9 @@ const SESSION_STORAGE_KEY = 'kyc_active_user_v1';
 
 function readStoredSession(): TeamMember | null {
   try {
+    if (typeof window !== 'undefined' && window.sessionStorage.getItem('kyc_logged_out') === 'true') {
+      return null;
+    }
     const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as TeamMember;
@@ -86,8 +92,14 @@ function saveStoredSession(user: TeamMember | null): void {
   try {
     if (user) {
       window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+      window.sessionStorage.removeItem('kyc_logged_out');
     } else {
       window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+      window.sessionStorage.setItem('kyc_logged_out', 'true');
+      window.localStorage.removeItem('kyc_active_user');
+      window.localStorage.removeItem('kyc_user');
+      window.localStorage.removeItem('active_user');
     }
   } catch {
     // Ignore storage quota / privacy mode errors
@@ -95,10 +107,11 @@ function saveStoredSession(user: TeamMember | null): void {
 }
 
 export function App() {
+  const cachedInitial = useMemo(() => getCachedWorkspaceData(), []);
   const [currentUser, setCurrentUser] = useState<TeamMember | null>(() => readStoredSession());
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [masterTeam, setMasterTeam] = useState<MasterSalesPerson[]>([]);
-  const [leads, setLeads] = useState<KycLead[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(cachedInitial.teamMembers);
+  const [masterTeam, setMasterTeam] = useState<MasterSalesPerson[]>(cachedInitial.masterTeam);
+  const [leads, setLeads] = useState<KycLead[]>(cachedInitial.leads);
   const [workspaceError, setWorkspaceError] = useState('');
 
   const [activeNav, setActiveNav] = useState<NavSection>('overview');
@@ -117,6 +130,7 @@ export function App() {
   const isMutatingRef = useRef(false);
   const selectedLeadIdRef = useRef<string | null>(null);
   const currentUserRef = useRef<TeamMember | null>(currentUser);
+  const logoutInProgressRef = useRef(false);
 
   useEffect(() => {
     selectedLeadIdRef.current = selectedLeadId;
@@ -138,8 +152,13 @@ export function App() {
 
   const handleLogout = useCallback(
     (reason?: string) => {
+      logoutInProgressRef.current = true;
+      currentUserRef.current = null;
       saveStoredSession(null);
       setCurrentUser(null);
+      setLeads([]);
+      setTeamMembers([]);
+      setMasterTeam([]);
       setSelectedLeadId(null);
       setIsFormOpen(false);
       setEditingLead(null);
@@ -149,12 +168,18 @@ export function App() {
       setActiveNav('overview');
       setWorkspaceError('');
       notify(reason ?? 'Logged out successfully.');
+
+      window.setTimeout(() => {
+        logoutInProgressRef.current = false;
+      }, 1200);
     },
     [notify]
   );
 
   const handleSignInSuccess = useCallback(
     (user: TeamMember) => {
+      logoutInProgressRef.current = false;
+      currentUserRef.current = user;
       saveStoredSession(user);
       setCurrentUser(user);
       const allowed = getAllowedPagesForUser(user);
@@ -166,14 +191,24 @@ export function App() {
   );
 
   const syncNow = useCallback(async () => {
+    if (logoutInProgressRef.current || !currentUserRef.current) return;
     const signedUser = currentUserRef.current;
-    if (!signedUser) return;
 
     try {
       const data = await fetchWorkspaceData();
+      // Ensure user did not log out while request was in-flight
+      if (
+        logoutInProgressRef.current ||
+        !currentUserRef.current ||
+        currentUserRef.current.id !== signedUser.id
+      ) {
+        return;
+      }
+
       setLeads(data.leads);
       setTeamMembers(data.teamMembers);
       setMasterTeam(data.masterTeam);
+      setCachedWorkspaceData(data);
       setWorkspaceError('');
 
       if (signedUser.id !== 'admin-root' && data.teamMembers.length > 0) {
@@ -186,9 +221,27 @@ export function App() {
           handleLogout('Your account session has ended or been deactivated.');
           return;
         }
-        const { password: _pwd, ...safeLatest } = latestProfile;
-        saveStoredSession(safeLatest);
-        setCurrentUser(safeLatest);
+
+        // Re-check after finding profile before saving session
+        if (
+          logoutInProgressRef.current ||
+          !currentUserRef.current ||
+          currentUserRef.current.id !== signedUser.id
+        ) {
+          return;
+        }
+
+        const isProfileChanged =
+          latestProfile.name !== signedUser.name ||
+          latestProfile.role !== signedUser.role ||
+          latestProfile.salespersonCategory !== signedUser.salespersonCategory ||
+          latestProfile.territory !== signedUser.territory;
+
+        if (isProfileChanged) {
+          const { password: _pwd, ...safeLatest } = latestProfile;
+          saveStoredSession(safeLatest);
+          setCurrentUser(safeLatest);
+        }
       }
 
       if (
@@ -199,6 +252,7 @@ export function App() {
         notify('Record removed.');
       }
     } catch (err) {
+      if (logoutInProgressRef.current || !currentUserRef.current) return;
       const msg = err instanceof Error ? err.message : 'Unable to refresh workspace data.';
       setWorkspaceError(msg);
     }
@@ -210,13 +264,13 @@ export function App() {
     void syncNow();
 
     const intervalId = window.setInterval(() => {
-      if (!document.hidden && !isMutatingRef.current) {
+      if (!document.hidden && !isMutatingRef.current && currentUserRef.current) {
         void syncNow();
       }
     }, POLL_INTERVAL_MS);
 
     const handleResumeSync = () => {
-      if (!document.hidden && !isMutatingRef.current) {
+      if (!document.hidden && !isMutatingRef.current && currentUserRef.current) {
         void syncNow();
       }
     };
@@ -261,14 +315,19 @@ export function App() {
 
   const activeUser = currentUser;
 
+  const userVisibleLeads = useMemo(
+    () => filterLeadsForUser(leads, activeUser),
+    [leads, activeUser]
+  );
+
   const selectedLead = useMemo(
-    () => leads.find((l) => l.id === selectedLeadId) ?? null,
-    [leads, selectedLeadId]
+    () => userVisibleLeads.find((l) => l.id === selectedLeadId) ?? null,
+    [userVisibleLeads, selectedLeadId]
   );
 
   const globallyFilteredLeads = useMemo(
-    () => filterLeadsByQuery(leads, globalSearchQuery),
-    [leads, globalSearchQuery]
+    () => filterLeadsByQuery(userVisibleLeads, globalSearchQuery),
+    [userVisibleLeads, globalSearchQuery]
   );
 
   const handleSaveKyc = (
@@ -276,7 +335,7 @@ export function App() {
     editingId?: string
   ) => {
     if (!activeUser) return;
-    const now = new Date().toISOString();
+    const now = formatSheetTimestamp();
 
     if (editingId) {
       const existing = leads.find((item) => item.id === editingId);
@@ -285,6 +344,7 @@ export function App() {
       const updatedLead: KycLead = {
         ...existing,
         ...payload,
+        createdAt: formatSheetTimestamp(existing.createdAt),
         updatedAt: now,
         activities: [
           ...existing.activities,
@@ -380,7 +440,7 @@ export function App() {
     const newMember: TeamMember = {
       ...member,
       status: member.status ?? 'active',
-      createdAt: new Date().toISOString(),
+      createdAt: formatSheetTimestamp(),
       id: `tm-${Date.now()}`,
     };
 
@@ -583,7 +643,11 @@ export function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleLogout()}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleLogout();
+                  }}
                   aria-label="Logout"
                   title="Logout"
                   className="min-h-[40px] inline-flex items-center gap-1.5 rounded-xl border border-rose-200/90 bg-white/90 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 transition-colors whitespace-nowrap shrink-0 shadow-2xs"
@@ -609,7 +673,7 @@ export function App() {
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200/80 bg-white/80 backdrop-blur-md px-4 py-2.5 text-xs text-slate-900 shadow-xs">
                   <div className="tabular-nums">
                     Showing <span className="font-semibold">{globallyFilteredLeads.length}</span> of{' '}
-                    <span className="font-semibold">{leads.length}</span> companies matching{' '}
+                    <span className="font-semibold">{userVisibleLeads.length}</span> companies matching{' '}
                     <span className="font-mono font-semibold text-[#0D4F3C]">
                       "{globalSearchQuery.trim()}"
                     </span>
@@ -643,7 +707,7 @@ export function App() {
               {activeNav === 'directory' && allowedPages.includes('directory') && (
                 <KycDirectoryView
                   leads={globallyFilteredLeads}
-                  totalLeadsCount={leads.length}
+                  totalLeadsCount={userVisibleLeads.length}
                   teamMembers={teamMembers}
                   initialEntityFilter={directoryEntityFilter}
                   globalSearchQuery={globalSearchQuery}
@@ -659,12 +723,16 @@ export function App() {
 
               {activeNav === 'leaderboard' && allowedPages.includes('leaderboard') && (
                 <LeaderboardView
-                  leads={globallyFilteredLeads}
+                  leads={isProtectedAdminMember(activeUser) ? globallyFilteredLeads : userVisibleLeads}
                   teamMembers={teamMembers}
+                  masterTeam={masterTeam}
                   activeUser={activeUser}
                   globalSearchQuery={globalSearchQuery}
-                  onAddTeamMember={handleAddTeamMember}
-                  onDeleteTeamMember={handleDeleteTeamMember}
+                  onOpenLead={(lead) => setSelectedLeadId(lead.id)}
+                  onNavigateToDirectory={(salespersonName) => {
+                    setActiveNav('directory');
+                    setGlobalSearchQuery(salespersonName);
+                  }}
                 />
               )}
 

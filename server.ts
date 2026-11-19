@@ -578,6 +578,19 @@ function normalizeAccountStatus(raw: string): AccountStatus {
   return 'active';
 }
 
+function formatSheetTimestamp(input?: string | number | Date | null): string {
+  if (!input) input = new Date();
+  const d = input instanceof Date ? input : new Date(input);
+  const validDate = Number.isNaN(d.getTime()) ? new Date() : d;
+  const mm = String(validDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(validDate.getDate()).padStart(2, '0');
+  const yyyy = validDate.getFullYear();
+  const hh = String(validDate.getHours()).padStart(2, '0');
+  const min = String(validDate.getMinutes()).padStart(2, '0');
+  const ss = String(validDate.getSeconds()).padStart(2, '0');
+  return `${mm}/${dd}/${yyyy} ${hh}:${min}:${ss}`;
+}
+
 function leadToRowValues(lead: KycLead): (string | number)[] {
   const salesRoleLabel =
     lead.salespersonCategory === 'ADMIN' ? 'Admin' : lead.salespersonCategory;
@@ -604,8 +617,8 @@ function leadToRowValues(lead: KycLead): (string | number)[] {
     lead.salespersonName,
     salesRoleLabel,
     lead.notes,
-    lead.createdAt,
-    lead.updatedAt,
+    formatSheetTimestamp(lead.createdAt),
+    formatSheetTimestamp(lead.updatedAt || lead.createdAt),
   ];
 }
 
@@ -648,6 +661,8 @@ function sanitizeLeadForAppsScript(lead: KycLead): Record<string, unknown> {
   return {
     ...lead,
     salespersonCategory: lead.salespersonCategory === 'ADMIN' ? 'Admin' : lead.salespersonCategory,
+    createdAt: formatSheetTimestamp(lead.createdAt),
+    updatedAt: formatSheetTimestamp(lead.updatedAt || lead.createdAt),
     gmId: '',
     mmId: '',
     tseId: '',
@@ -763,6 +778,21 @@ function getLocalWorkspaceData(): {
   };
 }
 
+
+
+let memoryWorkspaceCache: {
+  leads: KycLead[];
+  teamMembers: TeamMember[];
+  masterTeam: MasterSalesPerson[];
+} | null = null;
+let lastWorkspaceFetchTime = 0;
+let isWorkspaceBackgroundRefreshing = false;
+const WORKSPACE_CACHE_TTL_MS = 15_000;
+
+function invalidateServerWorkspaceCache(): void {
+  lastWorkspaceFetchTime = 0;
+}
+
 function saveLocalWorkspaceData(data: {
   leads?: KycLead[];
   teamMembers?: TeamMember[];
@@ -780,6 +810,8 @@ function saveLocalWorkspaceData(data: {
       fs.mkdirSync(dir, { recursive: true });
     }
     fs.writeFileSync(LOCAL_WORKSPACE_FILE, JSON.stringify(updated, null, 2), 'utf-8');
+    memoryWorkspaceCache = updated;
+    lastWorkspaceFetchTime = Date.now();
   } catch (err) {
     console.error('Failed to save local workspace data:', err);
   }
@@ -816,7 +848,9 @@ async function callAppsScript<T>(method: 'GET' | 'POST', body?: Record<string, u
   return parsed;
 }
 
-async function fetchWorkspaceData(): Promise<{
+
+
+async function fetchWorkspaceDataDirect(): Promise<{
   leads: KycLead[];
   teamMembers: TeamMember[];
   masterTeam: MasterSalesPerson[];
@@ -835,7 +869,7 @@ async function fetchWorkspaceData(): Promise<{
               const category = normalizeCategory(String(l.salespersonCategory ?? ''));
               const role: UserRole =
                 category === 'ADMIN' || category === 'GM' ? 'manager' : 'salesperson';
-              const createdAt = l.createdAt || new Date().toISOString();
+              const createdAt = formatSheetTimestamp(l.createdAt);
               const parsedActivities = Array.isArray(l.activities) && l.activities.length > 0
                 ? l.activities
                 : buildFallbackActivities(
@@ -946,12 +980,12 @@ async function fetchWorkspaceData(): Promise<{
           const parsedCount = Number(cells[9]);
           const branchCount =
             Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : branches.length;
-          const fallbackNow = new Date().toISOString();
+          const fallbackNow = formatSheetTimestamp();
 
           const category = normalizeCategory(cells[20] ?? '');
           const role: UserRole =
             category === 'ADMIN' || category === 'GM' ? 'manager' : 'salesperson';
-          const createdAt = cells[22] || fallbackNow;
+          const createdAt = formatSheetTimestamp(cells[22] || fallbackNow);
           const salespersonName = cells[19] || cells[18] || '';
           const gmName = cells[16] || '';
           const mmName = cells[17] || '';
@@ -981,7 +1015,7 @@ async function fetchWorkspaceData(): Promise<{
             salespersonCategory: category,
             notes: cells[21] || '',
             createdAt,
-            updatedAt: cells[23] || createdAt,
+            updatedAt: formatSheetTimestamp(cells[23] || createdAt),
             gmId: '',
             mmId: '',
             tseId: '',
@@ -1010,6 +1044,53 @@ async function fetchWorkspaceData(): Promise<{
   }
 
   return getLocalWorkspaceData();
+}
+
+async function fetchWorkspaceData(forceFresh = false): Promise<{
+  leads: KycLead[];
+  teamMembers: TeamMember[];
+  masterTeam: MasterSalesPerson[];
+}> {
+  const now = Date.now();
+  if (!forceFresh && memoryWorkspaceCache && now - lastWorkspaceFetchTime < WORKSPACE_CACHE_TTL_MS) {
+    return memoryWorkspaceCache;
+  }
+
+  if (!forceFresh && memoryWorkspaceCache && !isWorkspaceBackgroundRefreshing) {
+    isWorkspaceBackgroundRefreshing = true;
+    void fetchWorkspaceDataDirect()
+      .then((fresh) => {
+        memoryWorkspaceCache = fresh;
+        lastWorkspaceFetchTime = Date.now();
+      })
+      .catch((err) => {
+        console.warn('Background workspace refresh failed:', err);
+      })
+      .finally(() => {
+        isWorkspaceBackgroundRefreshing = false;
+      });
+    return memoryWorkspaceCache;
+  }
+
+  if (!memoryWorkspaceCache) {
+    const local = getLocalWorkspaceData();
+    if (local.leads.length > 0 || local.teamMembers.length > 1) {
+      memoryWorkspaceCache = local;
+      lastWorkspaceFetchTime = now;
+      void fetchWorkspaceDataDirect()
+        .then((fresh) => {
+          memoryWorkspaceCache = fresh;
+          lastWorkspaceFetchTime = Date.now();
+        })
+        .catch(() => {});
+      return memoryWorkspaceCache;
+    }
+  }
+
+  const result = await fetchWorkspaceDataDirect();
+  memoryWorkspaceCache = result;
+  lastWorkspaceFetchTime = Date.now();
+  return result;
 }
 
 async function findRowNumberById(
@@ -1146,9 +1227,7 @@ app.use(express.json({ limit: '2mb' }));
         state: detectedState,
         pincode: '',
         status: '',
-        message: detectedState
-          ? `State auto-detected (${detectedState}). Full GST registered address auto-fetch ke liye .env me GSTIN_API_KEY add karein.`
-          : 'Full GST registered address auto-fetch ke liye .env me GSTIN_API_KEY add karein.',
+        message: '',
       });
       return;
     }

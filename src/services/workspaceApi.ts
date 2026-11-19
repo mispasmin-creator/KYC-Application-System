@@ -236,40 +236,109 @@ export async function loginWithCredentials(
   throw new WorkspaceApiError('No account found for this username, email, or mobile.');
 }
 
+export const WORKSPACE_CACHE_KEY = 'kyc_workspace_cache_v1';
+
+export function getCachedWorkspaceData(): {
+  leads: KycLead[];
+  teamMembers: TeamMember[];
+  masterTeam: MasterSalesPerson[];
+} {
+  try {
+    const raw =
+      typeof window !== 'undefined' ? window.localStorage.getItem(WORKSPACE_CACHE_KEY) : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.leads)) {
+        return {
+          leads: parsed.leads,
+          teamMembers: Array.isArray(parsed.teamMembers) ? parsed.teamMembers : [],
+          masterTeam: Array.isArray(parsed.masterTeam) ? parsed.masterTeam : [],
+        };
+      }
+    }
+  } catch {
+    // Ignore storage parse errors
+  }
+  return { leads: [], teamMembers: [], masterTeam: [] };
+}
+
+export function setCachedWorkspaceData(data: {
+  leads: KycLead[];
+  teamMembers: TeamMember[];
+  masterTeam: MasterSalesPerson[];
+}): void {
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(WORKSPACE_CACHE_KEY, JSON.stringify(data));
+    }
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+let activeWorkspacePromise: Promise<{
+  leads: KycLead[];
+  teamMembers: TeamMember[];
+  masterTeam: MasterSalesPerson[];
+}> | null = null;
+
 export async function fetchWorkspaceData(): Promise<{
   leads: KycLead[];
   teamMembers: TeamMember[];
   masterTeam: MasterSalesPerson[];
 }> {
-  try {
-    const data = await apiRequest<{
-      leads?: KycLead[];
-      teamMembers?: TeamMember[];
-      masterTeam?: MasterSalesPerson[];
-    }>('/api/workspace');
-
-    return {
-      leads: Array.isArray(data.leads) ? data.leads : [],
-      teamMembers: Array.isArray(data.teamMembers) ? data.teamMembers : [],
-      masterTeam: Array.isArray(data.masterTeam) ? data.masterTeam : [],
-    };
-  } catch (err) {
-    console.warn('API /api/workspace failed, attempting direct Google Sheet fetch:', err);
-    const directData = await fetchDirectFromAppsScript<{
-      leads?: KycLead[];
-      teamMembers?: TeamMember[];
-      masterTeam?: MasterSalesPerson[];
-    }>('GET');
-
-    if (directData && (directData.leads || directData.teamMembers || directData.masterTeam)) {
-      return {
-        leads: Array.isArray(directData.leads) ? directData.leads : [],
-        teamMembers: Array.isArray(directData.teamMembers) ? directData.teamMembers : [],
-        masterTeam: Array.isArray(directData.masterTeam) ? directData.masterTeam : [],
-      };
-    }
-    throw err;
+  if (activeWorkspacePromise) {
+    return activeWorkspacePromise;
   }
+
+  activeWorkspacePromise = (async () => {
+    try {
+      const data = await apiRequest<{
+        leads?: KycLead[];
+        teamMembers?: TeamMember[];
+        masterTeam?: MasterSalesPerson[];
+      }>('/api/workspace');
+
+      const result = {
+        leads: Array.isArray(data.leads) ? data.leads : [],
+        teamMembers: Array.isArray(data.teamMembers) ? data.teamMembers : [],
+        masterTeam: Array.isArray(data.masterTeam) ? data.masterTeam : [],
+      };
+      if (result.leads.length > 0 || result.teamMembers.length > 0) {
+        setCachedWorkspaceData(result);
+      }
+      return result;
+    } catch (err) {
+      console.warn('API /api/workspace failed, attempting direct Google Sheet fetch:', err);
+      const directData = await fetchDirectFromAppsScript<{
+        leads?: KycLead[];
+        teamMembers?: TeamMember[];
+        masterTeam?: MasterSalesPerson[];
+      }>('GET');
+
+      if (directData && (directData.leads || directData.teamMembers || directData.masterTeam)) {
+        const result = {
+          leads: Array.isArray(directData.leads) ? directData.leads : [],
+          teamMembers: Array.isArray(directData.teamMembers) ? directData.teamMembers : [],
+          masterTeam: Array.isArray(directData.masterTeam) ? directData.masterTeam : [],
+        };
+        if (result.leads.length > 0 || result.teamMembers.length > 0) {
+          setCachedWorkspaceData(result);
+        }
+        return result;
+      }
+
+      const cached = getCachedWorkspaceData();
+      if (cached.leads.length > 0 || cached.teamMembers.length > 0) {
+        return cached;
+      }
+      throw err;
+    } finally {
+      activeWorkspacePromise = null;
+    }
+  })();
+
+  return activeWorkspacePromise;
 }
 
 export async function createKycLead(lead: KycLead): Promise<void> {

@@ -105,7 +105,7 @@ export function GlobalSearchBar({
           }}
           onFocus={() => setIsFocused(true)}
           onKeyDown={handleKeyDown}
-          placeholder="Search company, GSTIN, ID, city, or rep..."
+          placeholder="Search company, GSTIN, ID..."
           aria-label="Global company search"
           aria-expanded={showDropdown}
           aria-autocomplete="list"
@@ -180,14 +180,18 @@ export function GlobalSearchBar({
                           {lead.id}
                         </span>
                       </div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
-                        <span className="font-mono tabular-nums text-slate-700">{lead.gstin}</span>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
+                        <span className="font-mono tabular-nums font-semibold text-slate-800">{lead.gstin}</span>
                         <span aria-hidden="true">·</span>
                         <span>{lead.city}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>
-                          GM: {lead.gmName} · TSE: {lead.tseName}
-                        </span>
+                        {(lead.tseName || lead.gmName) && (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <span className="truncate">
+                              {lead.tseName ? `TSE: ${lead.tseName}` : `GM: ${lead.gmName}`}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
 

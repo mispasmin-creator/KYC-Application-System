@@ -48,6 +48,20 @@ export interface GstValidationResult {
   message: string;
 }
 
+export function isUnregisteredGstin(gstin: string | null | undefined): boolean {
+  if (!gstin) return true;
+  const upper = gstin.trim().toUpperCase();
+  return (
+    upper === '' ||
+    upper === 'URP' ||
+    upper === 'N/A' ||
+    upper === 'NA' ||
+    upper === '-' ||
+    upper === 'NONE' ||
+    upper === 'UNREGISTERED'
+  );
+}
+
 export function validateGstin(raw: string): GstValidationResult {
   const normalized = raw.trim().toUpperCase();
   if (!normalized) {
@@ -152,4 +166,21 @@ export function formatDateTime(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/**
+ * Formats a date into spreadsheet-compatible "MM/DD/YYYY HH:MM:SS" format.
+ * Enables Google Sheets to calculate dates using formulas (DATEVALUE, TIMEVALUE, arithmetic, sorting).
+ */
+export function formatSheetTimestamp(input?: string | number | Date | null): string {
+  if (!input) input = new Date();
+  const d = input instanceof Date ? input : new Date(input);
+  const validDate = Number.isNaN(d.getTime()) ? new Date() : d;
+  const mm = String(validDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(validDate.getDate()).padStart(2, '0');
+  const yyyy = validDate.getFullYear();
+  const hh = String(validDate.getHours()).padStart(2, '0');
+  const min = String(validDate.getMinutes()).padStart(2, '0');
+  const ss = String(validDate.getSeconds()).padStart(2, '0');
+  return `${mm}/${dd}/${yyyy} ${hh}:${min}:${ss}`;
 }

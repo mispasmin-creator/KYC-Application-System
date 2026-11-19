@@ -1,5 +1,5 @@
 import { AlertTriangle, Eye, EyeOff, ExternalLink, Lock, LogIn, User } from 'lucide-react';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useRef, useState } from 'react';
 import { loginWithCredentials, WorkspaceApiError } from '../services/workspaceApi';
 import { TeamMember } from '../types/kyc';
 
@@ -15,8 +15,20 @@ export function SignInView({ onAuthenticated }: SignInViewProps) {
   const [errorMessage, setErrorMessage] = useState('');
   const [isCookieBlocked, setIsCookieBlocked] = useState(false);
 
+  // Guard against browser extension auto-submit firing immediately upon mount after logout
+  const mountTimeRef = useRef(Date.now());
+  const userInteractedRef = useRef(false);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+
+    // If an external autofill script triggers submit instantly upon mount without user interaction, ignore it
+    const elapsed = Date.now() - mountTimeRef.current;
+    if (elapsed < 1000 && !userInteractedRef.current) {
+      console.warn('[SignInView] Prevented automatic background form submission right after logout.');
+      return;
+    }
+
     const cleanId = identifier.trim();
     if (!cleanId || !password) {
       setErrorMessage('Please enter your username and password.');
@@ -103,9 +115,18 @@ export function SignInView({ onAuthenticated }: SignInViewProps) {
                 type="text"
                 autoComplete="username"
                 value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
+                onFocus={() => {
+                  userInteractedRef.current = true;
+                }}
+                onKeyDown={() => {
+                  userInteractedRef.current = true;
+                }}
+                onChange={(e) => {
+                  userInteractedRef.current = true;
+                  setIdentifier(e.target.value);
+                }}
                 placeholder="e.g. Admin or team username"
-                className="w-full min-h-[44px] rounded-xl border border-slate-200 bg-white pl-10 pr-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#0D4F3C] focus:outline-hidden focus:ring-2 focus:ring-emerald-900/10"
+                className="w-full min-h-[44px] rounded-xl border border-slate-200 bg-white pl-10 pr-3.5 py-2.5 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#0D4F3C] focus:outline-hidden focus:ring-2 focus:ring-emerald-900/10"
                 required
               />
             </div>
@@ -125,9 +146,18 @@ export function SignInView({ onAuthenticated }: SignInViewProps) {
                 type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onFocus={() => {
+                  userInteractedRef.current = true;
+                }}
+                onKeyDown={() => {
+                  userInteractedRef.current = true;
+                }}
+                onChange={(e) => {
+                  userInteractedRef.current = true;
+                  setPassword(e.target.value);
+                }}
                 placeholder="Enter your password"
-                className="w-full min-h-[44px] rounded-xl border border-slate-200 bg-white pl-10 pr-11 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#0D4F3C] focus:outline-hidden focus:ring-2 focus:ring-emerald-900/10"
+                className="w-full min-h-[44px] rounded-xl border border-slate-200 bg-white pl-10 pr-11 py-2.5 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#0D4F3C] focus:outline-hidden focus:ring-2 focus:ring-emerald-900/10"
                 required
               />
               <button
@@ -144,6 +174,9 @@ export function SignInView({ onAuthenticated }: SignInViewProps) {
           <button
             type="submit"
             disabled={isSubmitting}
+            onClick={() => {
+              userInteractedRef.current = true;
+            }}
             className="w-full min-h-[46px] inline-flex items-center justify-center gap-2 rounded-xl bg-[#0D4F3C] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#093b2d] disabled:opacity-60 shadow-[0_10px_22px_-6px_rgba(13,79,60,0.45)] transition-all"
           >
             <LogIn className="h-4 w-4" />

@@ -14,6 +14,7 @@ import {
 import { EntityType, KycLead, NavSection, TeamMember } from '../types/kyc';
 import { formatCategoryBadge } from '../utils/teamAccessUtils';
 import { formatDateTime, formatShortDate } from '../utils/validators';
+import { KycCompanyCard } from './KycCompanyCard';
 
 interface OverviewViewProps {
   leads: KycLead[];
@@ -262,69 +263,11 @@ export function OverviewView({
           ) : (
             <div className="space-y-3">
               {recentCompanies.map((lead) => (
-                <button
+                <KycCompanyCard
                   key={lead.id}
-                  type="button"
-                  onClick={() => onOpenLead(lead)}
-                  className="w-full rounded-2xl bg-white border border-slate-200/80 p-4 text-left shadow-xs active:scale-[0.99] transition-transform"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-display text-sm font-bold text-slate-900 truncate">
-                        {lead.companyName}
-                      </div>
-                      <div className="mt-0.5 text-xs text-slate-500 truncate">
-                        {lead.industry} · {lead.city}, {lead.state}
-                      </div>
-                    </div>
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-[#0D4F3C] shrink-0">
-                      <ArrowUpRight className="h-4 w-4" />
-                    </span>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                    <div className="min-w-0">
-                      <div className="text-[10px] text-slate-400">GSTIN</div>
-                      <div className="font-mono font-semibold text-slate-800 truncate tabular-nums">
-                        {lead.gstin}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-slate-400">Branches</div>
-                      <div className="font-mono font-semibold text-slate-900 tabular-nums">
-                        {lead.branchCount} {lead.branchCount === 1 ? 'Unit' : 'Units'}
-                      </div>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] text-slate-400">TSE</div>
-                      <div className="font-medium text-slate-800 truncate">{lead.tseName}</div>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className={`h-full rounded-full ${
-                        lead.entityType === 'customer' ? 'bg-[#A3F046]' : 'bg-amber-400'
-                      }`}
-                      style={{ width: lead.entityType === 'customer' ? '72%' : '56%' }}
-                    />
-                  </div>
-
-                  <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                    <span className="truncate">
-                      GM: {lead.gmName} · MM: {lead.mmName}
-                    </span>
-                    <span
-                      className={`rounded-full px-2 py-0.5 font-semibold shrink-0 ${
-                        lead.entityType === 'customer'
-                          ? 'bg-[#0D4F3C] text-white'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {lead.entityType === 'customer' ? 'Customer' : 'Vendor'}
-                    </span>
-                  </div>
-                </button>
+                  lead={lead}
+                  onClick={onOpenLead}
+                />
               ))}
             </div>
           )}
